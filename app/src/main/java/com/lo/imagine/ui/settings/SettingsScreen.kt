@@ -800,6 +800,8 @@ PresetDropdown(
                 onClick = { showApiDialog = true }
             )
             Spacer(Modifier.height(8.dp))
+            VideoConnectionSettings(repository)
+            Spacer(Modifier.height(8.dp))
             SettingsConnectionRow(
                 icon = Icons.Outlined.AutoFixHigh, title = "润色 LLM",
                 subtitle = "$llmLabel · ${llmModel.ifBlank { "未选模型" }}",

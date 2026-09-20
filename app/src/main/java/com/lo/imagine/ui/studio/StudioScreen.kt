@@ -301,15 +301,7 @@ fun StudioScreen(
         // 本地乐观选中：立即高亮/更新角标，不等 DataStore 回流（避免“要点两次”）
         pickedPresetKey = preset.name.trim() + "|" + preset.baseUrl
         scope.launch {
-            settingsRepository.save(
-                settings.copy(
-                    baseUrl = preset.baseUrl,
-                    apiKey = preset.apiKey,
-                    model = preset.model,
-                    editMode = preset.editMode
-                )
-            )
-            settingsRepository.saveActivePreset(preset.name)
+            settingsRepository.saveImageConnection(preset)
         }
     }
 
@@ -318,7 +310,7 @@ fun StudioScreen(
         val next = value.coerceIn(1, 4)
         homeParallel = next
         TaskScheduler.configure(next)
-        scope.launch { settingsRepository.save(settings.copy(maxParallel = next)) }
+        scope.launch { settingsRepository.saveMaxParallel(next) }
     }
 
     fun commitCount() {

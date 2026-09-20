@@ -11,6 +11,15 @@ fun llmApiConfigurationError(settings: AppSettings): String? = apiConfigurationE
     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel, "设置 → 提示词润色 LLM"
 )
 
+/** Configuration validation only; this does not make a video task or a connectivity request. */
+fun videoApiConfigurationError(settings: AppSettings): String? = apiConfigurationError(
+    settings.videoBaseUrl, settings.videoApiKey, settings.videoModel, "设置 → 视频 API"
+)
+
+fun videoApiConfigurationError(settings: VideoApiSettings): String? = apiConfigurationError(
+    settings.baseUrl, settings.apiKey, settings.model, "设置 → 视频 API"
+)
+
 internal fun apiEndpointError(raw: String): String? {
     val value = raw.trim()
     if (!Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(value) ||
@@ -22,6 +31,12 @@ internal fun apiEndpointError(raw: String): String? {
     }
     return null
 }
+
+/** Safe inline validation: never include the credential in an error message. */
+internal fun apiKeyFormatError(raw: String): String? =
+    if (raw.trim().any { it.code !in 33..126 })
+        "API Key 格式不正确，请重新粘贴 Key，去掉中间的空格或换行。"
+    else null
 
 internal fun apiConfigurationError(
     baseUrl: String,
@@ -39,7 +54,7 @@ internal fun apiConfigurationError(
     }
     apiEndpointError(baseUrl)?.let { return "$it 请到「$location」修改。" }
     // OkHttp rejects control characters and non-ASCII header values. Do not echo the key.
-    if (apiKey.trim().any { it.code !in 33..126 }) {
+    if (apiKeyFormatError(apiKey) != null) {
         return "API Key 格式不正确，请到「$location」重新粘贴 Key，去掉中间的空格或换行。"
     }
     return null

@@ -100,7 +100,11 @@ data class AppSettings(
      */
     val reversePromptTemplate: String = "",
     /** 润色 system 覆盖：留空用内置（[PromptTemplates.defaultPolishPromptText]）。 */
-    val polishPromptTemplate: String = ""
+    val polishPromptTemplate: String = "",
+    /** 视频服务连接：独立配置，不借用绘图或 LLM 的地址、Key、模型。 */
+    val videoBaseUrl: String = "",
+    val videoApiKey: String = "",
+    val videoModel: String = ""
 ) {
     /** 兼容旧读取点：genModel 与 editModel 均指向同一模型 */
     val genModel: String get() = model
@@ -135,6 +139,11 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         val LLM_BASE_URL = stringPreferencesKey("llm_base_url")
         val LLM_API_KEY = stringPreferencesKey("llm_api_key")
         val LLM_MODEL = stringPreferencesKey("llm_model")
+        val VIDEO_BASE_URL = stringPreferencesKey("video_base_url")
+        val VIDEO_API_KEY = stringPreferencesKey("video_api_key")
+        val VIDEO_MODEL = stringPreferencesKey("video_model")
+        val VIDEO_PRESETS = stringPreferencesKey("custom_video_presets_json")
+        val ACTIVE_VIDEO_PRESET = stringPreferencesKey("active_video_preset_name")
         val MAX_PARALLEL = androidx.datastore.preferences.core.intPreferencesKey("max_parallel")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         /** v2：默认策略改为「保留模型真实输出」；旧键（upscale_enabled，曾默认 true）不再读取 */
@@ -177,6 +186,9 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             llmBaseUrl = p[Keys.LLM_BASE_URL] ?: "",
             llmApiKey = p[Keys.LLM_API_KEY] ?: "",
             llmModel = p[Keys.LLM_MODEL] ?: "",
+            videoBaseUrl = p[Keys.VIDEO_BASE_URL] ?: "",
+            videoApiKey = p[Keys.VIDEO_API_KEY] ?: "",
+            videoModel = p[Keys.VIDEO_MODEL] ?: "",
             maxParallel = (p[Keys.MAX_PARALLEL] ?: 1).coerceIn(1, 4),
             themeMode = ThemeMode.fromId(p[Keys.THEME_MODE] ?: ThemeMode.ARKNIGHTS_LIGHT.id).id,
             upscaleEnabled = p[Keys.UPSCALE_ENABLED] ?: false,
@@ -187,7 +199,10 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         )
     }
 
-    /** Settings page form ownership: never rewrite appearance, output options or prompt templates. */
+    /** Image/LLM form ownership only: never rewrite video, appearance, output or templates.
+     * Video has a single independent writer, saveVideoSettings, so an older image draft
+     * cannot clear a newly configured video connection.
+     */
     suspend fun saveConnections(settings: AppSettings) {
         store.edit { p ->
             p[Keys.BASE_URL] = settings.baseUrl
@@ -197,6 +212,46 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             p[Keys.LLM_BASE_URL] = settings.llmBaseUrl
             p[Keys.LLM_API_KEY] = settings.llmApiKey
             p[Keys.LLM_MODEL] = settings.llmModel
+        }
+    }
+
+    /** The studio preset picker owns only the image connection. */
+    suspend fun saveImageConnection(preset: CustomPreset) {
+        store.edit { p ->
+            p[Keys.BASE_URL] = preset.baseUrl
+            p[Keys.API_KEY] = preset.apiKey
+            p[Keys.MODEL] = preset.model
+            p[Keys.EDIT_MODE] = preset.editMode
+            p[Keys.ACTIVE_PRESET] = preset.name
+        }
+    }
+
+    suspend fun saveMaxParallel(value: Int) {
+        store.edit { it[Keys.MAX_PARALLEL] = value.coerceIn(1, 4) }
+    }
+
+    val videoSettings: Flow<VideoApiSettings> = store.data.map { p ->
+        VideoApiSettings(
+            baseUrl = p[Keys.VIDEO_BASE_URL] ?: "",
+            apiKey = p[Keys.VIDEO_API_KEY] ?: "",
+            model = p[Keys.VIDEO_MODEL] ?: "",
+            presets = p[Keys.VIDEO_PRESETS]?.let {
+                gson.fromJson(it, Array<CustomVideoPreset>::class.java).toList()
+            } ?: emptyList(),
+            activePresetName = p[Keys.ACTIVE_VIDEO_PRESET]
+        )
+    }
+
+    /** Atomically persist only video keys; never substitute another channel's connection. */
+    suspend fun saveVideoSettings(settings: VideoApiSettings) {
+        val video = settings.normalized().syncActivePreset()
+        store.edit { p ->
+            p[Keys.VIDEO_BASE_URL] = video.baseUrl
+            p[Keys.VIDEO_API_KEY] = video.apiKey
+            p[Keys.VIDEO_MODEL] = video.model
+            p[Keys.VIDEO_PRESETS] = gson.toJson(video.presets)
+            val active = video.activePresetName
+            if (active == null) p.remove(Keys.ACTIVE_VIDEO_PRESET) else p[Keys.ACTIVE_VIDEO_PRESET] = active
         }
     }
 
@@ -227,6 +282,9 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             p[Keys.LLM_BASE_URL] = settings.llmBaseUrl
             p[Keys.LLM_API_KEY] = settings.llmApiKey
             p[Keys.LLM_MODEL] = settings.llmModel
+            p[Keys.VIDEO_BASE_URL] = settings.videoBaseUrl
+            p[Keys.VIDEO_API_KEY] = settings.videoApiKey
+            p[Keys.VIDEO_MODEL] = settings.videoModel
             p[Keys.MAX_PARALLEL] = settings.maxParallel.coerceIn(1, 4)
             p[Keys.THEME_MODE] = ThemeMode.fromId(settings.themeMode).id
             p[Keys.UPSCALE_ENABLED] = settings.upscaleEnabled

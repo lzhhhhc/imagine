@@ -8,6 +8,16 @@
 - 最低版本：Android 7.0（API 24） · 目标版本：API 35
 - 授权：MIT（见 [LICENSE](LICENSE)）
 
+## 界面预览
+
+| 标准绘图 | NAI 工作台 | 修图 |
+| :---: | :---: | :---: |
+| ![标准绘图](docs/screenshots/01-studio-standard.jpg) | ![NAI 工作台](docs/screenshots/02-studio-nai.jpg) | ![修图](docs/screenshots/03-retouch.jpg) |
+
+| 导演台 | 设置 | 生成中 |
+| :---: | :---: | :---: |
+| ![导演台](docs/screenshots/04-director.jpg) | ![设置](docs/screenshots/05-settings.jpg) | ![生成中](docs/screenshots/06-generation.jpg) |
+
 ## 功能
 
 | 模块 | 说明 |
@@ -28,6 +38,36 @@
 - **圆角标尺**：全应用只允许 `PopRadius` 五档（10 / 12 / 16 / 20 / 胶囊），避免随手写圆角
 
 图标为统一生成的 24 画布 / 1.7 线宽矢量字形，明暗共用同一份路径。
+
+## 灵感来源与借鉴声明
+
+本项目在 **NovelAI 工作台** 的设计思路上，明确借鉴了开源 SillyTavern 插件
+**[damoshen123/st-chatu8（智绘姬）](https://github.com/damoshen123/st-chatu8)**：
+
+**借鉴的部分（行为与交互设计，非代码）**
+
+- NAI 原生接口的参数组织方式：`params_version` / 采样器 / 噪声调度 / `cfg_rescale` 等字段的取舍
+- 角色卡（Character Prompt）的多角色分隔与「角色属性不互相污染」的处理思路
+- 「角色数据 → LLM 推理 → 场景适配提示词」的场景融合链路设计
+- 多角色人数与坐标字段的配合方式（`use_coords` 关闭时传空对象等对齐经验）
+- 智绘姬导出格式（含 Base64 混淆字段）的兼容导入需求
+
+**没有做的事情**
+
+- **未复制其源代码**。本项目的解析器 `Chatu8CharacterImporter.kt`、NAI 客户端
+  `NaiNativeClient.kt`、提示词处理 `NaiPolish.kt` 均为自行实现的 Kotlin 代码，
+  仅以插件**公开的接口行为**为兼容目标。
+- 其源码文件（`refs/st-chatu8/index.js` 等）**未纳入本仓库**，已在 `.gitignore` 中排除。
+
+**为什么必须特别声明**
+
+智绘姬依据 **Aladdin Free Public License (AFPL)** 授权，作者已明确说明
+**AFPL 不是开源许可证**：允许免费复制修改再分发，但**禁止商业机构以任何收费方式分发**。
+因此本项目严格保持「只借鉴思路、不搬运代码」的边界，避免许可证污染。
+详见 [LICENSE](LICENSE) 的第三方声明段。
+
+**致谢**：感谢 **从前跟你一样（[@damoshen123](https://github.com/damoshen123)）** 的智绘姬插件，
+它在 NovelAI 多角色与场景融合上的探索为本项目提供了重要参考。
 
 ## 构建
 

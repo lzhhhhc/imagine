@@ -24,11 +24,24 @@ SOFTWARE.
 
 ## 第三方声明 / Third-party notices
 
-本项目**不包含**任何第三方非开源代码。开发过程中参考过的以下材料已从仓库中排除：
+### st-chatu8（智绘姬）
 
-- `st-chatu8 (智绘姬)` SillyTavern 文生图扩展 —— 依据 Aladdin Free Public License
-  授权（非开源许可证，禁止商业机构收费分发）。本项目仅以其**公开的接口行为**为兼容目标，
-  自行实现解析逻辑，未复制其源代码，其文件未纳入本仓库。
-- `NovelAI` 相关接口名称与字段为各自权利人的商标/接口规范，本项目与 NovelAI 官方无隶属关系。
+本项目在 NovelAI 工作台的设计思路上借鉴了 SillyTavern 插件
+[`damoshen123/st-chatu8`](https://github.com/damoshen123/st-chatu8)。
 
-应用内置的 `app/src/main/res/raw/opening_film.mp4` 等媒体素材由本项目自行制作，随本仓库一同以 MIT 授权发布。
+- 该插件依据 **Aladdin Free Public License (AFPL) v9** 授权。**AFPL 不是开源许可证**：
+  允许免费复制、修改、再分发，但**禁止商业机构以任何收费方式分发**，
+  再分发须标注修改、以同一许可证免费授权并附带完整源码。
+- 本项目**未复制其源代码**，仅以其公开的接口行为为兼容目标，相关逻辑均以 Kotlin 自行实现。
+- 其源码文件（`refs/st-chatu8/index.js`、`tools/st-chatu8-reference.js` 等）以及
+  由该插件衍生的参考样式文件，**均未纳入本仓库**，已在 `.gitignore` 中排除。
+- 本项目自身的 MIT 授权**不覆盖**上述第三方作品，也不对其作任何再授权。
+
+致谢：从前跟你一样（[@damoshen123](https://github.com/damoshen123)）。
+
+### 其他
+
+- `NovelAI`、`Seedance`、`SillyTavern`、`Claude`、`Gemini` 等名称与接口规范归各自权利人所有，
+  本项目与上述官方均无隶属或背书关系。
+- 应用内置的 `app/src/main/res/raw/opening_film.mp4` 等媒体素材由本项目自行制作，
+  随本仓库一同以 MIT 授权发布。

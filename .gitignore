@@ -35,3 +35,6 @@ tools/reference-*.css
 # ===== 内部一次性迁移脚本与预编译二进制（非项目源码）=====
 tools/*.py
 tools/aapt2/
+# ===== 本地发布产物（APK 走 GitHub Release，不进 git 历史）=====
+dist/*.apk
+dist/RELEASE_NOTES.md

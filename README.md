@@ -8,6 +8,16 @@
 - 最低版本：Android 7.0（API 24） · 目标版本：API 35
 - 授权：MIT（见 [LICENSE](LICENSE)）
 
+## 下载安装
+
+**[⬇ 下载最新 APK](https://github.com/lzhhhhc/imagine/releases/latest)**（Debug 构建，用于功能体验）
+
+1. 下载 `imagine-1.0-theme78.apk`
+2. 允许「安装未知来源应用」后安装
+3. 打开应用 → **设置 → 绘图引擎** 填写你自己的 API 地址与 Key
+
+> 应用**不内置任何 API Key**，首次启动需自行配置。正式分发请自行配置 release 签名。
+
 ## 界面预览
 
 | 标准绘图 | NAI 工作台 | 修图 |
@@ -17,6 +27,12 @@
 | 导演台 | 设置 | 生成中 |
 | :---: | :---: | :---: |
 | ![导演台](docs/screenshots/04-director.jpg) | ![设置](docs/screenshots/05-settings.jpg) | ![生成中](docs/screenshots/06-generation.jpg) |
+
+| 导演分步访谈 | 智绘姬角色导入 |
+| :---: | :---: |
+| ![导演访谈](docs/screenshots/07-director-interview.jpg) | ![智绘姬导入](docs/screenshots/08-chatu8-import.jpg) |
+
+> 右侧截图即本项目对智绘姬（st-chatu8）导出格式的兼容导入功能，见下方借鉴声明。
 
 ## 功能
 

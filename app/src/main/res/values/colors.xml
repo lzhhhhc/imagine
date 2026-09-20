@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 开屏与图标通用色：去紫转蓝青，与 App 主题色一致 -->
+<resources>
+    <color name="splash_background">#FFA1A8BD</color>
+    <color name="splash_accent">#FF1F7D9F</color>
+    <color name="ic_launcher_background">#FFDCE5F0</color>
+</resources>

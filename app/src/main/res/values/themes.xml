@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- 窗口背景直接是壁纸：冷启动首帧即壁纸，无任何纯色占位段 -->
+        <item name="android:windowBackground">@drawable/launch_bg</item>
+    </style>
+</resources>

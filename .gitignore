@@ -1,0 +1,37 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# ===== 构建产物与本地环境 =====
+app/build/
+.kotlin/
+.operit/
+.backup/
+*.apk
+*.aab
+*.hprof
+
+# ===== 迭代存档：体积大（含 APK / 截图 / 源码快照），不属于项目源码 =====
+ref/
+
+# ===== 第三方非开源代码（AFPL 授权，明确禁止并入公开仓库）=====
+refs/
+tools/st-chatu8-reference.js
+tools/reference-*.html
+tools/reference-*.css
+
+# ===== 内部一次性迁移脚本与预编译二进制（非项目源码）=====
+tools/*.py
+tools/aapt2/

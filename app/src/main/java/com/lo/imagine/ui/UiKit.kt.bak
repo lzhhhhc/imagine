@@ -1,0 +1,3149 @@
+package com.lo.imagine.ui
+
+import com.lo.imagine.ui.theme.PopRadius
+
+import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlin.math.sin
+import kotlin.math.PI
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.lo.imagine.data.AspectOption
+import com.lo.imagine.data.ImageData
+import com.lo.imagine.ui.theme.LocalPopAccents
+import com.lo.imagine.ui.theme.Moss
+import com.lo.imagine.ui.theme.SignalSoft
+import com.lo.imagine.util.ImageUtils
+
+@Composable
+fun ScreenHeader(
+    title: String,
+    subtitle: String? = null,
+    action: (@Composable () -> Unit)? = null,
+    /**
+     * 左上角标题的自定义内容：传了就**替换**标题文字（例如「创作 / NAI」模式切换按钮）。
+     * 三段主题（默认 / SKY / 罗德岛）都支持，避免某个主题下控件消失。
+     */
+    titleOverride: (@Composable () -> Unit)? = null
+) {
+    val flavor = com.lo.imagine.ui.theme.LocalFlavor.current
+    if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyScreenHeader(title, subtitle, action, titleOverride)
+        return
+    }
+    if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkScreenHeader(title, subtitle, action, titleOverride)
+        return
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (flavor.headerPill) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White)
+                                .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            PIcon(PopSpark, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text(text = title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Black)
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .width(6.dp)
+                                .height(26.dp)
+                                .clip(if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID) RoundedCornerShape(0.dp) else RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.POP_DOTS) {
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(LocalPopAccents.current.b))
+                            Spacer(Modifier.width(4.dp))
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(LocalPopAccents.current.a))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.NIGHT) {
+                            Box(Modifier.size(3.dp).clip(CircleShape).background(Color.White.copy(alpha = .55f)))
+                            Spacer(Modifier.width(5.dp))
+                            Box(Modifier.size(2.dp).clip(CircleShape).background(Color.White.copy(alpha = .35f)))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID) {
+                            Box(Modifier.size(5.dp).background(LocalPopAccents.current.b))
+                            Spacer(Modifier.width(2.dp))
+                            Box(Modifier.size(5.dp).background(LocalPopAccents.current.a))
+                            Spacer(Modifier.width(6.dp))
+                            Box(Modifier.size(8.dp).background(LocalPopAccents.current.c))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        if (titleOverride != null) titleOverride() else Text(
+                            text = title,
+                            style = if (flavor.headerShadow) MaterialTheme.typography.titleLarge.copy(shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black.copy(alpha = .65f), offset = Offset(3f, 3f))) else MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Black
+                        )
+                        if (flavor.headerUnderline) {
+                            Spacer(Modifier.width(10.dp))
+                            Box(Modifier.width(30.dp).height(5.dp).background(MaterialTheme.colorScheme.secondary))
+                            Spacer(Modifier.width(5.dp))
+                            Box(Modifier.size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                        }
+                    }
+                }
+                HeaderTitleDecor()
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(text = subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp))
+                }
+            }
+            if (action != null) {
+                Spacer(Modifier.width(12.dp))
+                action()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkyScreenHeader(
+    title: String,
+    subtitle: String?,
+    action: (@Composable () -> Unit)?,
+    titleOverride: (@Composable () -> Unit)? = null
+) {
+    val scheme = MaterialTheme.colorScheme
+    // 静态页头（每页一条，不挂无限动画）
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(scheme.primaryContainer.copy(alpha = .82f))
+                    .drawBehind {
+                        // 固定的斜向光泽（静态）：右上亮、左下暗
+                        drawRect(
+                            brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(
+                                    scheme.primary.copy(alpha = 0f),
+                                    scheme.primary.copy(alpha = .55f),
+                                    scheme.primary.copy(alpha = 0f)
+                                ),
+                                start = Offset(-size.width * .4f, size.height),
+                                end = Offset(size.width * .8f, 0f)
+                            ),
+                            topLeft = Offset.Zero,
+                            size = Size(size.width, size.height)
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                PIcon(PopSpark, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                if (titleOverride != null) titleOverride() else Text(title, style = MaterialTheme.typography.headlineSmall, color = scheme.onBackground, fontWeight = FontWeight.Bold)
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            action?.let {
+                Spacer(Modifier.width(8.dp))
+                it()
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(RoundedCornerShape(50))
+                .background(scheme.primary.copy(alpha = .12f))
+                .drawBehind {
+                    // 固定的左亮右隐高光段（静态）
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(
+                                scheme.primary.copy(alpha = .74f),
+                                scheme.primary.copy(alpha = 0f)
+                            ),
+                            startX = 0f,
+                            endX = size.width * .30f
+                        ),
+                        topLeft = Offset.Zero,
+                        size = Size(size.width * .30f, size.height)
+                    )
+                }
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("SKY // STUDIO", style = MaterialTheme.typography.labelSmall, color = scheme.primary, fontWeight = FontWeight.Bold)
+            Text("SPARKS ONLINE", style = MaterialTheme.typography.labelSmall, color = scheme.secondary, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun ArkScreenHeader(
+    title: String,
+    subtitle: String?,
+    action: (@Composable () -> Unit)?,
+    titleOverride: (@Composable () -> Unit)? = null
+) {
+    val scheme = MaterialTheme.colorScheme
+    // 静态页头（每页一条，不挂无限动画）
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .width(5.dp)
+                    .height(42.dp)
+                    .background(scheme.primary.copy(alpha = .92f))
+                    .drawBehind {
+                        drawRect(
+                            color = scheme.primary.copy(alpha = .14f),
+                            topLeft = Offset(-4.dp.toPx(), 0f),
+                            size = Size(13.dp.toPx(), size.height)
+                        )
+                    }
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    if (titleOverride != null) titleOverride() else Text(title, style = MaterialTheme.typography.headlineSmall, color = scheme.onBackground, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(10.dp))
+                    Text("RHODES // NODE 01", style = MaterialTheme.typography.labelSmall, color = scheme.primary, fontWeight = FontWeight.Bold)
+                }
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (action != null) {
+                Spacer(Modifier.width(8.dp))
+                action()
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .drawBehind {
+                    drawRect(scheme.outline.copy(alpha = .22f))
+                    // 固定亮段（静态）
+                    drawRect(scheme.primary.copy(alpha = .9f), topLeft = Offset(0f, 0f), size = Size(size.width * .22f, size.height))
+                }
+        )
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(5.dp)
+                        .background(scheme.secondary.copy(alpha = .90f))
+                )
+                Spacer(Modifier.width(5.dp))
+                Text("SYSTEM ONLINE", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            }
+            Text("// ${title.uppercase()} //", style = MaterialTheme.typography.labelSmall, color = scheme.secondary, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun SectionTitle(
+    title: String,
+    hint: String? = null,
+    action: (@Composable () -> Unit)? = null
+) {
+    Row(
+        verticalAlignment = Alignment.Bottom,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp, bottom = 10.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionMarker()
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            if (!hint.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+            }
+        }
+        action?.invoke()
+    }
+}
+
+/**
+ * 分组标题标记（每个主题一套「卷首符」）：
+ * 波普三色网点、深夜竖光条、像素方块序列、包豪斯黑方块、动漫粉点、罗德岛切角块。
+ * 之前只有包豪斯有分支，其余主题共用一颗红点——这是“主题之间不像一套系统”的主要来源之一。
+ */
+@Composable
+private fun SectionMarker() {
+    // 纯静态标记：分组标记每屏出现十余次，挂动画会成片失效重绘。
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    val accents = LocalPopAccents.current
+    val scheme = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when (backdrop) {
+            com.lo.imagine.ui.theme.BackdropKind.POP_DOTS -> {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(accents.b))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(5.dp).clip(CircleShape).background(accents.a))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(3.dp).clip(CircleShape).background(accents.c))
+            }
+            com.lo.imagine.ui.theme.BackdropKind.NIGHT -> {
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(15.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(accents.a.copy(alpha = .85f))
+                )
+                Spacer(Modifier.width(5.dp))
+                Box(
+                    Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = .55f))
+                )
+            }
+            com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID -> {
+                Box(Modifier.size(9.dp).background(accents.a.copy(alpha = .92f)))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(9.dp).background(accents.b.copy(alpha = .42f)))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(4.dp).background(accents.c.copy(alpha = .90f)))
+            }
+            com.lo.imagine.ui.theme.BackdropKind.BAUHAUS_GEO -> {
+                Box(Modifier.size(10.dp).background(scheme.outline))
+                Spacer(Modifier.width(5.dp))
+                Box(Modifier.width(16.dp).height(4.dp).background(accents.b))
+            }
+            com.lo.imagine.ui.theme.BackdropKind.SKY -> {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(accents.a))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(4.dp).clip(CircleShape).background(accents.b.copy(alpha = .80f)))
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.size(3.dp).clip(CircleShape).background(accents.c))
+            }
+            com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL -> {
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(com.lo.imagine.ui.theme.ArkChamferShape(3.dp))
+                        .background(scheme.primary.copy(alpha = .92f))
+                )
+                Spacer(Modifier.width(4.dp))
+                Box(Modifier.width(14.dp).height(2.dp).background(scheme.secondary.copy(alpha = .80f)))
+            }
+            else -> Box(Modifier.size(8.dp).clip(CircleShape).background(accents.b))
+        }
+        Spacer(Modifier.width(8.dp))
+    }
+}
+
+/**
+ * 页头标题下的主题装饰条：波普黄红双色印刷条 / 深夜发光渐线 / 像素扫描轨。
+ * 包豪斯与罗德岛走各自的行内标记（黑粗线 + 原色块），不在此重复。
+ */
+@Composable
+private fun HeaderTitleDecor() {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    val isPop = backdrop == com.lo.imagine.ui.theme.BackdropKind.POP_DOTS
+    val isNight = backdrop == com.lo.imagine.ui.theme.BackdropKind.NIGHT
+    val isPixel = backdrop == com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID
+    if (!isPop && !isNight && !isPixel) return
+    val accents = LocalPopAccents.current
+    val scheme = MaterialTheme.colorScheme
+    // 静态装饰条：页头每页一条，不再挂无限动画（动画只留给背景与加载态）
+    val barWidth = when {
+        isPop -> 76.dp
+        isNight -> 104.dp
+        else -> 128.dp
+    }
+    Box(
+        Modifier
+            .padding(start = 16.dp, top = 7.dp)
+            .width(barWidth)
+            .height(if (isPixel) 5.dp else 3.dp)
+            .drawBehind {
+                val u = 1.dp.toPx()
+                when {
+                    isPop -> {
+                        drawRect(accents.a, Offset.Zero, Size(size.width * .52f, size.height))
+                        drawRect(
+                            accents.b,
+                            Offset(size.width * .52f, 0f),
+                            Size(size.width * .26f, size.height)
+                        )
+                        drawCircle(
+                            accents.c,
+                            radius = size.height * .58f,
+                            center = Offset(size.width * .92f, size.height / 2f)
+                        )
+                    }
+                    isNight -> {
+                        drawRect(
+                            scheme.outlineVariant.copy(alpha = .35f),
+                            Offset.Zero,
+                            Size(size.width, size.height)
+                        )
+                        // 固定的中段辉光（静态）
+                        drawRect(
+                            brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    accents.a.copy(alpha = .85f),
+                                    Color.Transparent
+                                )
+                            ),
+                            topLeft = Offset(size.width * .30f, 0f),
+                            size = Size(size.width * .40f, size.height)
+                        )
+                    }
+                    else -> {
+                        drawRect(
+                            scheme.onSurface.copy(alpha = .10f),
+                            Offset.Zero,
+                            Size(size.width, size.height)
+                        )
+                        var x = 0f
+                        while (x < size.width) {
+                            drawRect(accents.a.copy(alpha = .55f), Offset(x, 0f), Size(3.5f * u, size.height))
+                            x += 8f * u
+                        }
+                        // 固定亮块（静态）
+                        drawRect(
+                            accents.c,
+                            Offset(size.width * .60f, 0f),
+                            Size(9f * u, size.height)
+                        )
+                    }
+                }
+            }
+    )
+}
+
+/** 赛璐璐硬投影：无模糊的偏移色块阴影，贴纸质感。亮色主题纯黑高对比，暗色主题降透明防糊。 */
+fun Modifier.celShadow(
+    shape: Shape,
+    dx: Dp = 3.dp,
+    dy: Dp = 3.dp
+): Modifier = drawBehind {
+    // 阴影色：亮主题用近黑纯墨，暗主题用半透明黑防"黑洞"感
+    val ink = Color(0xFF17120A)
+    translate(dx.toPx(), dy.toPx()) {
+        drawOutline(
+            outline = shape.createOutline(size, layoutDirection, this),
+            color = ink,
+            alpha = .85f
+        )
+    }
+}
+
+/**
+ * 赛璐璐墨线自适应：亮色主题（纸面）用近黑墨线，深色主题自动降为暗灰线，
+ * 避免深色界面出现刺眼白框。
+ */
+@Composable
+fun celInk(): Color {
+    val scheme = MaterialTheme.colorScheme
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    // 动漫：墨线换成深樱粉——全部描边粉色化是二次元 UI 最强的视觉信号
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        return Color(0xFFE0559C)
+    }
+    // 罗德岛终端：官网分隔线是固定灰 #585858，不随明暗层级漂移
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        return com.lo.imagine.ui.theme.ArkLine
+    }
+    return if (scheme.surface.luminance() > .5f) {
+        scheme.onSurface
+    } else {
+        scheme.outlineVariant.copy(alpha = .95f)
+    }
+}
+
+/**
+ * 主行动按钮（CTA）的主题化描边：
+ * - 波普/深夜：赛璐璐墨线细边（贴纸感）
+ * - 8-bit：粗黑硬边（街机机壳感）
+ * - 包豪斯：纯黑粗边（构成主义海报）
+ * - 动漫：无边框（柔和色块）
+ */
+@Composable
+fun popCtaBorder(): androidx.compose.foundation.BorderStroke? {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    return when (backdrop) {
+        com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID ->
+            androidx.compose.foundation.BorderStroke(2.5.dp, com.lo.imagine.ui.theme.Ink)
+        com.lo.imagine.ui.theme.BackdropKind.BAUHAUS_GEO ->
+            androidx.compose.foundation.BorderStroke(2.dp, com.lo.imagine.ui.theme.Ink)
+        com.lo.imagine.ui.theme.BackdropKind.SKY -> null
+        // 罗德岛终端：青色行动块 + 深灰外框，边角由主题切角形状完成
+        com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL ->
+            androidx.compose.foundation.BorderStroke(1.5.dp, celInk())
+        com.lo.imagine.ui.theme.BackdropKind.POP_DOTS ->
+            androidx.compose.foundation.BorderStroke(2.dp, celInk())
+        else -> androidx.compose.foundation.BorderStroke(1.5.dp, celInk())
+    }
+}
+
+/**
+ * 主题化背景：每个主题用自己的底纹装饰（波普点、夜幕、像素网格、包豪斯几何、天空渐变）。
+ */
+@Composable
+fun Modifier.popBackdrop(): Modifier {
+    val flavor = com.lo.imagine.ui.theme.LocalFlavor.current
+    val scheme = MaterialTheme.colorScheme
+    // DrawScope 里不能访问 CompositionLocal：先在 Composable 主体取出主题强调色
+    val popA = LocalPopAccents.current.a
+    val popB = LocalPopAccents.current.b
+    val popC = LocalPopAccents.current.c
+    val popD = LocalPopAccents.current.d
+    // 罗德岛底纹用的幽灵文字画笔（DrawScope 内不便构造，提前在 Composable 主体造好）
+    val hudGhost = android.graphics.Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.argb(11, 200, 240, 255)
+        textAlign = android.graphics.Paint.Align.LEFT
+        typeface = android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
+        letterSpacing = 0.24f
+    }
+    val backdropTransition = rememberInfiniteTransition(label = "backdropMotion")
+    val skyDrift by backdropTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+        label = "skyBackdropDrift"
+    )
+    val skyTwinkle by backdropTransition.animateFloat(
+        initialValue = .35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "skyBackdropTwinkle"
+    )
+    val arkSweep by backdropTransition.animateFloat(
+        initialValue = -.16f,
+        targetValue = 1.16f,
+        animationSpec = infiniteRepeatable(tween(3600, easing = LinearEasing), RepeatMode.Restart),
+        label = "arkBackdropSweep"
+    )
+    val arkPulse by backdropTransition.animateFloat(
+        initialValue = .42f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(760, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "arkBackdropPulse"
+    )
+    // SKY 半调网点缓存：预构建成一条 Path，逐帧一次 drawPath（逐帧画上万个圆会掉帧）
+    var skyDotPath: androidx.compose.ui.graphics.Path? = null
+    var skyDotSize: Size? = null
+    return drawBehind {
+        val w = size.width
+        val h = size.height
+        when (flavor.backdrop) {
+            com.lo.imagine.ui.theme.BackdropKind.POP_DOTS -> {
+                // 右上：警戒斜带（柠檬黄+朱红交替，粗细交替——波普海报标志性元素）
+                val cx = w * .86f
+                val cy = h * .10f
+                val d45 = 0.7071f
+                val dirX = d45; val dirY = d45
+                val perpX = -d45; val perpY = d45
+                for (i in -5..5) {
+                    val off = i * 34f
+                    val sx = cx + perpX * off - dirX * 120f
+                    val sy = cy + perpY * off - dirY * 120f
+                    val ex = cx + perpX * off + dirX * 120f
+                    val ey = cy + perpY * off + dirY * 120f
+                    drawLine(
+                        color = if (i % 2 == 0) popA.copy(alpha = .9f) else popB.copy(alpha = .75f),
+                        start = Offset(sx, sy),
+                        end = Offset(ex, ey),
+                        strokeWidth = if (i % 2 == 0) 10f else 5f
+                    )
+                }
+                // 右下：品红斜切实心三角（撞色刀切）
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w, h * .76f); lineTo(w, h); lineTo(w * .78f, h); close()
+                    },
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(popC.copy(alpha = .65f), popC.copy(alpha = .2f)),
+                        start = Offset(w, h * .76f), end = Offset(w * .78f, h)
+                    )
+                )
+                // 左下：朱红贴纸块（斜切平行四边形）
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, h * .86f); lineTo(w * .15f, h * .82f)
+                        lineTo(w * .17f, h * .95f); lineTo(0f, h); close()
+                    },
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(popB.copy(alpha = .55f), popB.copy(alpha = .2f)),
+                        start = Offset(0f, h * .82f), end = Offset(w * .17f, h)
+                    )
+                )
+                // 满幅：半调网点（利希滕斯坦标志性 rosette 点阵，双密度）
+                val step = 24f
+                var row = 0
+                var y = h * .28f
+                while (y < h) {
+                    var x = if (row % 2 == 0) 8f else 8f + step / 2f
+                    while (x < w * .45f) {
+                        drawCircle(
+                            color = com.lo.imagine.ui.theme.Ink.copy(alpha = .10f),
+                            radius = 2.6f,
+                            center = Offset(x, y)
+                        )
+                        x += step
+                    }
+                    row += 1
+                    y += step
+                }
+                // 左上：钴青空心圆环（波普点缀）
+                drawCircle(
+                    color = popC.copy(alpha = .35f),
+                    radius = 26f,
+                    center = Offset(w * .08f, h * .20f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
+                )
+            }
+            com.lo.imagine.ui.theme.BackdropKind.NIGHT -> {
+                // 右上光晕 + 左上绿影
+                drawCircle(
+                    color = com.lo.imagine.ui.theme.SignalDark.copy(alpha = .05f),
+                    radius = w * .30f,
+                    center = Offset(w * .90f, h * .06f)
+                )
+                drawCircle(
+                    color = com.lo.imagine.ui.theme.Moss.copy(alpha = .04f),
+                    radius = w * .22f,
+                    center = Offset(w * .05f, h * .38f)
+                )
+                // 极光斜带（右上到左下，青→绿）
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w * .55f, h * .04f)
+                        lineTo(w, h * .16f)
+                        lineTo(w, h * .30f)
+                        lineTo(w * .44f, h * .13f)
+                        close()
+                    },
+                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(
+                            com.lo.imagine.ui.theme.SignalDark.copy(alpha = .10f),
+                            com.lo.imagine.ui.theme.Moss.copy(alpha = .07f)
+                        ),
+                        start = Offset(w * .55f, h * .04f),
+                        end = Offset(w, h * .30f)
+                    )
+                )
+                // 星群（3 个星座点 + 连线 + 散布小星）
+                for (i in 0 until 44) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = .05f + (i % 3) * .015f),
+                        radius = 1.6f,
+                        center = Offset((i * 173f) % w, (i * 89f) % (h * .55f))
+                    )
+                }
+                val s1 = Offset(w * .16f, h * .09f)
+                val s2 = Offset(w * .30f, h * .17f)
+                val s3 = Offset(w * .50f, h * .06f)
+                drawLine(Color.White.copy(alpha = .22f), s1, s2, strokeWidth = 1.2f)
+                drawLine(Color.White.copy(alpha = .22f), s2, s3, strokeWidth = 1.2f)
+                listOf(s1, s2, s3).forEach { p ->
+                    drawCircle(
+                        color = Color.White.copy(alpha = .75f),
+                        radius = 3.4f,
+                        center = p
+                    )
+                }
+            }
+            com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID -> {
+                // 全屏网格（双原色错开）——alpha 拉高让网格在深靛底上清晰可见
+                var i = 0f
+                while (i < w) {
+                    drawLine(
+                        color = popA.copy(alpha = .16f),
+                        start = Offset(i, 0f),
+                        end = Offset(i, h),
+                        strokeWidth = 1.5f
+                    )
+                    i += 26f
+                }
+                var j = 0f
+                while (j < h) {
+                    drawLine(
+                        color = popC.copy(alpha = .14f),
+                        start = Offset(0f, j),
+                        end = Offset(w, j),
+                        strokeWidth = 1.5f
+                    )
+                    j += 26f
+                }
+                // 底边：像素阶梯（左绿右青交错，更高更醒目）
+                val cell = 26f
+                val cols = (w / cell).toInt() + 1
+                for (c in 0 until cols) {
+                    val rise = ((c * 7 + 3) % 6) * cell
+                    val col = if (c % 2 == 0) popA else popC
+                    if (rise > 0f) {
+                        drawRect(
+                            color = col.copy(alpha = .22f),
+                            topLeft = Offset(c * cell, h - rise),
+                            size = androidx.compose.ui.geometry.Size(cell, rise)
+                        )
+                    }
+                }
+                // 右上：迷宫砖块（绿/琥珀/青混排，更大更密）
+                val block = 30f
+                for (r in 0 until 4) {
+                    for (c in 0 until 5) {
+                        if ((r * 5 + c) % 2 == 0) {
+                            drawRect(
+                                color = when ((r + c) % 3) {
+                                    0 -> popA
+                                    1 -> popB
+                                    else -> popC
+                                }.copy(alpha = .30f),
+                                topLeft = Offset(w - 8f - (5 - c) * block, h * .04f + r * block),
+                                size = androidx.compose.ui.geometry.Size(block - 3f, block - 3f)
+                            )
+                        }
+                    }
+                }
+            }
+                        com.lo.imagine.ui.theme.BackdropKind.BAUHAUS_GEO -> {
+                // 右上：红色大圆（只剩右半）——构成主义的标志性圆形
+                drawCircle(
+                    color = scheme.primary.copy(alpha = .34f),
+                    radius = w * .32f,
+                    center = Offset(w * .94f, h * .08f)
+                )
+                // 左中：蓝色圆环 + 内白点（粗线）
+                drawCircle(
+                    color = scheme.secondary.copy(alpha = .38f),
+                    radius = w * .13f,
+                    center = Offset(w * .08f, h * .34f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 22f)
+                )
+                drawCircle(
+                    color = scheme.secondary.copy(alpha = .55f),
+                    radius = 10f,
+                    center = Offset(w * .08f, h * .34f)
+                )
+                // 右下：黄色大三角（更实）
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w * .76f, h * .94f)
+                        lineTo(w * .99f, h * .60f)
+                        lineTo(w, h * .94f)
+                        close()
+                    },
+                    color = scheme.tertiary.copy(alpha = .46f)
+                )
+                // 黑折线（三段，构成主义切割线——加粗）
+                drawLine(
+                    color = scheme.outline.copy(alpha = .75f),
+                    start = Offset(w * .06f, h * .74f),
+                    end = Offset(w * .44f, h * .61f),
+                    strokeWidth = 7f
+                )
+                drawLine(
+                    color = scheme.outline.copy(alpha = .75f),
+                    start = Offset(w * .44f, h * .61f),
+                    end = Offset(w * .70f, h * .79f),
+                    strokeWidth = 7f
+                )
+                drawLine(
+                    color = scheme.outline.copy(alpha = .75f),
+                    start = Offset(w * .70f, h * .79f),
+                    end = Offset(w * .90f, h * .57f),
+                    strokeWidth = 7f
+                )
+                // 底部黑粗线（更粗）
+                drawLine(
+                    color = scheme.outline.copy(alpha = .6f),
+                    start = Offset(0f, h * .965f),
+                    end = Offset(w, h * .965f),
+                    strokeWidth = 6f
+                )
+                // 左下：蓝色小方块（构成主义的矩形元素）
+                drawRect(
+                    color = scheme.secondary.copy(alpha = .28f),
+                    topLeft = Offset(w * .04f, h * .88f),
+                    size = androidx.compose.ui.geometry.Size(56f, 56f)
+                )
+                // 左上：红色小半圆
+                drawCircle(
+                    color = scheme.primary.copy(alpha = .26f),
+                    radius = 42f,
+                    center = Offset(w * .16f, h * .06f)
+                )
+            }
+            com.lo.imagine.ui.theme.BackdropKind.SKY -> {
+                // 二次元底色：淡樱纸面
+                drawRect(
+                    color = Color(0xFFFFF3F7),
+                    size = androidx.compose.ui.geometry.Size(w, h)
+                )
+                // 顶部清晨天空：淡蓝一笔带过
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFBFE0FA),
+                            Color(0xFFBFE0FA).copy(alpha = 0f)
+                        )
+                    ),
+                    topLeft = Offset(0f, 0f),
+                    size = androidx.compose.ui.geometry.Size(w, h * .18f)
+                )
+                // 三团柔和光晕（樱粉/天蓝/薄荷），只做氛围不做贴纸
+                listOf(
+                    listOf(w * .96f, h * .04f, w * .38f, Color(0xFFFFB7CF), .20f),
+                    listOf(w * .02f, h * .22f, w * .34f, Color(0xFF9FD8FF), .18f),
+                    listOf(w * .99f, h * .55f, w * .30f, Color(0xFF9BE3C9), .14f)
+                ).forEach { q ->
+                    val c = q[3] as Color
+                    drawCircle(
+                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(
+                                c.copy(alpha = q[4] as Float),
+                                c.copy(alpha = 0f)
+                            )
+                        ),
+                        radius = q[2] as Float,
+                        center = Offset(q[0] as Float, q[1] as Float)
+                    )
+                }
+                // 一团缓慢漂移的晨光，让 SKY 底色有呼吸而不变成强烈的动态背景。
+                val driftX = w * (skyDrift * 1.24f - .12f)
+                drawCircle(
+                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFFD4E3).copy(alpha = .13f * skyTwinkle),
+                            Color.Transparent
+                        )
+                    ),
+                    radius = w * .22f,
+                    center = Offset(driftX, h * .16f)
+                )
+                // 整屏极轻网点：统一的少女漫画颗粒感
+                // 网点预构建成一条 Path：一次 drawPath 画完，避免每帧上万次 drawCircle 掉帧
+                if (skyDotPath == null || skyDotSize != size) {
+                    val step = 20f
+                    val p = androidx.compose.ui.graphics.Path()
+                    var row = 0
+                    var y = step / 2f
+                    while (y < h) {
+                        var x = if (row % 2 == 0) step / 2f else step
+                        while (x < w) {
+                            p.addOval(androidx.compose.ui.geometry.Rect(x - 2f, y - 2f, x + 2f, y + 2f))
+                            x += step
+                        }
+                        row += 1
+                        y += step
+                    }
+                    skyDotPath = p
+                    skyDotSize = size
+                }
+                skyDotPath?.let { drawPath(it, Color(0xFFFFC7DB).copy(alpha = .16f)) }
+                // 四芒星：小而轻，只保留闪烁感
+                fun sparklePath(cx: Float, cy: Float, r: Float) =
+                    androidx.compose.ui.graphics.Path().apply {
+                        val k = r * .26f
+                        moveTo(cx, cy - r)
+                        lineTo(cx + k, cy - k)
+                        lineTo(cx + r, cy)
+                        lineTo(cx + k, cy + k)
+                        lineTo(cx, cy + r)
+                        lineTo(cx - k, cy + k)
+                        lineTo(cx - r, cy)
+                        lineTo(cx - k, cy - k)
+                        close()
+                    }
+                listOf(
+                    listOf(w * .87f, h * .095f, w * .014f, Color(0xFFFF9DBE), .55f),
+                    listOf(w * .13f, h * .125f, w * .011f, Color(0xFF7FC4EE), .5f),
+                    listOf(w * .33f, h * .05f, w * .008f, Color(0xFFFFD36E), .5f),
+                    listOf(w * .55f, h * .155f, w * .007f, Color(0xFF8FD9BF), .45f),
+                    listOf(w * .45f, h * .09f, w * .006f, Color(0xFFFFB7CF), .45f),
+                    listOf(w * .93f, h * .42f, w * .008f, Color(0xFFFF9DBE), .4f),
+                    listOf(w * .07f, h * .55f, w * .008f, Color(0xFF7FC4EE), .4f)
+                ).forEachIndexed { index, q ->
+                    val c = q[3] as Color
+                    val twinkle = if (index % 2 == 0) skyTwinkle else (1.18f - skyTwinkle)
+                    drawPath(
+                        sparklePath(q[0] as Float, q[1] as Float, q[2] as Float),
+                        c.copy(alpha = (q[4] as Float) * twinkle.coerceIn(.35f, 1f))
+                    )
+                }
+                // 樱瓣：半透明花瓣悬浮摇曳（正弦浮动，无循环端点，杜绝跳变）
+                listOf(
+                    listOf(w * .17f, h * .09f, 22f, 25f),
+                    listOf(w * .76f, h * .22f, 17f, -30f),
+                    listOf(w * .52f, h * .38f, 14f, 50f),
+                    listOf(w * .08f, h * .5f, 15f, -15f),
+                    listOf(w * .88f, h * .68f, 16f, 35f)
+                ).forEachIndexed { index, q ->
+                    val baseX = q[0] as Float
+                    val baseY = q[1] as Float
+                    val phase = skyDrift * 2f * PI.toFloat() + index.toFloat() * 1.7f
+                    // 水平摆动 + 垂直呼吸（都是正弦，周期连续）
+                    val cx = baseX + sin(phase) * 18f
+                    val cy = baseY + sin(phase * .8f + 1.2f) * 14f
+                    val r = q[2] as Float
+                    val rot = (q[3] as Float) + sin(phase * .6f) * 22f
+                    rotate(degrees = rot, pivot = Offset(cx, cy)) {
+                        drawPath(
+                            path = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(cx, cy - r)
+                                quadraticBezierTo(cx + r, cy - r * .2f, cx, cy + r)
+                                quadraticBezierTo(cx - r, cy - r * .2f, cx, cy - r)
+                                close()
+                            },
+                            color = Color(0xFFFFC7DB).copy(alpha = .75f)
+                        )
+                    }
+                }
+            }
+            com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL -> {
+                // ===== 罗德岛终端底纹（浅色版）：冷白舱室 + 标志青 HUD 装饰 =====
+                val cyan = Color(0xFF00A8CC)   // 浅底上青加深
+                val lime = Color(0xFFB8D400)   // 荧光黄绿
+                val ink = Color(0xFF1A1D1F)    // 深灰近黑
+
+                // 1) 极细网格：浅底用深灰发丝线
+                val gridStep = 46f
+                var gx = 0f
+                while (gx < w) {
+                    drawLine(color = ink.copy(alpha = .035f), start = Offset(gx, 0f), end = Offset(gx, h), strokeWidth = 1f)
+                    gx += gridStep
+                }
+                var gy = 0f
+                while (gy < h) {
+                    drawLine(color = ink.copy(alpha = .035f), start = Offset(0f, gy), end = Offset(w, gy), strokeWidth = 1f)
+                    gy += gridStep
+                }
+
+                // 2) 左下梳齿条码纹：浅底用青色细线
+                val combStep = 9f
+                var cx2 = 0f
+                while (cx2 < w * .34f) {
+                    drawLine(color = cyan.copy(alpha = .08f), start = Offset(cx2, h * .80f), end = Offset(cx2, h * .97f), strokeWidth = 1.6f)
+                    cx2 += combStep
+                }
+
+                // 3) 右上：标志青角括号 + 斜切色块（浅底上更醒目）
+                val bx = w - 26f
+                val by = h * .055f
+                drawLine(cyan.copy(alpha = .75f), Offset(bx - 52f, by), Offset(bx, by), strokeWidth = 2.6f)
+                drawLine(cyan.copy(alpha = .75f), Offset(bx, by), Offset(bx, by + 52f), strokeWidth = 2.6f)
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w, h * .02f); lineTo(w, h * .125f)
+                        lineTo(w * .88f, h * .02f); close()
+                    },
+                    color = cyan.copy(alpha = .20f)
+                )
+
+                // 4) 右下：青/绿双色斜向细条（浅底上对比更强）
+                for (i in 0..4) {
+                    val off = i * 17f
+                    drawLine(
+                        color = if (i % 2 == 0) cyan.copy(alpha = .28f) else lime.copy(alpha = .22f),
+                        start = Offset(w * .76f + off, h),
+                        end = Offset(w * .90f + off, h * .84f),
+                        strokeWidth = if (i % 2 == 0) 6f else 3f
+                    )
+                }
+
+                // 5) 幽灵终端文字：浅底用深灰，保持"终端代码"质感
+                hudGhost?.let { p ->
+                    p.color = android.graphics.Color.argb(38, 26, 29, 31)
+                    val canvas = drawContext.canvas.nativeCanvas
+                    p.textSize = (w * .052f).coerceAtMost(56f)
+                    canvas.save()
+                    canvas.translate(w * .055f, h * .62f)
+                    canvas.rotate(-90f)
+                    canvas.drawText("RHODES ISLAND ://", 0f, 0f, p)
+                    canvas.restore()
+                    p.textSize = (w * .026f).coerceAtMost(30f)
+                    canvas.drawText("HTTPS://AK.HYPERGRYPH.COM/", w * .04f, h * .755f, p)
+                }
+
+                // 6) 顶部发丝分隔线 + 左上一段青线（浅底用深灰+青）
+                drawLine(color = ink.copy(alpha = .12f), start = Offset(0f, h * .035f), end = Offset(w, h * .035f), strokeWidth = 1f)
+                drawLine(color = cyan.copy(alpha = .80f), start = Offset(0f, h * .035f), end = Offset(w * .16f, h * .035f), strokeWidth = 2.6f)
+
+                // 全屏 HUD 扫描带与呼吸点：低透明度，强化终端正在工作的状态。
+                val sweepX = w * arkSweep
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, cyan.copy(alpha = .055f), Color.Transparent),
+                        startX = sweepX - w * .18f,
+                        endX = sweepX + w * .18f
+                    ),
+                    topLeft = Offset(sweepX - w * .18f, 0f),
+                    size = Size(w * .36f, h)
+                )
+                drawCircle(
+                    color = lime.copy(alpha = .08f + .10f * arkPulse),
+                    radius = 7f + 4f * arkPulse,
+                    center = Offset(w * .92f, h * .70f)
+                )
+
+                // 7) 左下：青色切角方块（官网"档案卡"角标语言）
+                drawPath(
+                    path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, h * .72f); lineTo(w * .10f, h * .72f)
+                        lineTo(w * .10f, h * .78f); lineTo(0f, h * .82f); close()
+                    },
+                    color = cyan.copy(alpha = .14f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun Panel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val flavor = com.lo.imagine.ui.theme.LocalFlavor.current
+    val celShape = com.lo.imagine.ui.theme.themedShape(flavor.panelCorner)
+    var base = modifier.fillMaxWidth()
+    if (flavor.panelCelX > 0.dp) {
+        base = base.celShadow(celShape, flavor.panelCelX, flavor.panelCelY)
+    }
+    if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyPanel(base, celShape, flavor.panelPadding, content)
+        return
+    }
+    if (flavor.backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkPanel(base, celShape, flavor.panelPadding, content)
+        return
+    }
+    Surface(
+        shape = celShape,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = flavor.panelElevation,
+        border = androidx.compose.foundation.BorderStroke(flavor.panelBorder, celInk()),
+        modifier = base.animateContentSize()
+    ) {
+        Box {
+            // 主题材质层：波普半调网点 / 深夜辉光 / 像素扫描线 / 包豪斯原色块
+            com.lo.imagine.ui.theme.PanelMaterial(
+                flavor.backdrop,
+                celShape,
+                Modifier.matchParentSize()
+            )
+            Column(modifier = Modifier.padding(flavor.panelPadding), content = content)
+        }
+    }
+}
+
+@Composable
+private fun SkyPanel(
+    modifier: Modifier,
+    shape: Shape,
+    padding: Dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    // 静态面板装饰：面板数量多，动画一律不挂（动效只留给背景与加载态）
+    Surface(
+        shape = shape,
+        color = scheme.surface.copy(alpha = .94f),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, scheme.primary.copy(alpha = .20f)),
+        modifier = modifier
+            .animateContentSize()
+            .drawBehind {
+                // 顶边固定光泽：从左端亮起、向右渐隐（静态）
+                drawRect(
+                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        colors = listOf(
+                            scheme.primary.copy(alpha = .42f),
+                            scheme.primary.copy(alpha = 0f)
+                        ),
+                        startX = 18.dp.toPx(),
+                        endX = 18.dp.toPx() + size.width * .30f
+                    ),
+                    topLeft = Offset(18.dp.toPx(), 0f),
+                    size = Size(size.width * .30f, 2.dp.toPx())
+                )
+                // 右上角固定呼吸点改为静态浅晕
+                drawCircle(
+                    color = scheme.tertiary.copy(alpha = .10f),
+                    radius = 24.dp.toPx(),
+                    center = Offset(size.width - 16.dp.toPx(), 16.dp.toPx())
+                )
+            }
+    ) {
+        Column(modifier = Modifier.padding(padding), content = content)
+    }
+}
+
+@Composable
+private fun ArkPanel(
+    modifier: Modifier,
+    shape: Shape,
+    padding: Dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    // 静态终端模块：角标线 + 轨道线 + 状态块（动画只留给背景与加载态）
+    Surface(
+        shape = shape,
+        color = scheme.surface.copy(alpha = .93f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.5.dp, scheme.outline),
+        modifier = modifier
+            .animateContentSize()
+            .drawBehind {
+                val notch = 18.dp.toPx()
+                val line = scheme.primary.copy(alpha = .82f)
+                val rail = scheme.outline.copy(alpha = .34f)
+                // 局部框线和标记角，让每块内容更像一个独立的终端模块。
+                drawLine(line, Offset(0f, 0f), Offset(notch, 0f), strokeWidth = 2.4f)
+                drawLine(line, Offset(0f, 0f), Offset(0f, notch), strokeWidth = 2.4f)
+                drawLine(line, Offset(size.width - notch, size.height), Offset(size.width, size.height), strokeWidth = 2.4f)
+                drawLine(line, Offset(size.width, size.height - notch), Offset(size.width, size.height), strokeWidth = 2.4f)
+                drawLine(rail, Offset(12.dp.toPx(), size.height - 7.dp.toPx()), Offset(size.width - 28.dp.toPx(), size.height - 7.dp.toPx()), strokeWidth = 1f)
+                drawRect(
+                    scheme.secondary.copy(alpha = .50f),
+                    topLeft = Offset(size.width - 20.dp.toPx(), 0f),
+                    size = Size(20.dp.toPx(), 3.dp.toPx())
+                )
+            }
+    ) {
+        Column(
+            modifier = Modifier.padding(padding),
+            content = content
+        )
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun PopChipRow(
+    items: List<String>,
+    onPick: (String) -> Unit
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items.forEach { ex ->
+            Surface(
+                onClick = { onPick(ex) },
+                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true),
+                color = LocalPopAccents.current.a,
+                contentColor = com.lo.imagine.ui.theme.Ink,
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, com.lo.imagine.ui.theme.Ink)
+            ) {
+                Text(
+                    text = "试试：$ex",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = com.lo.imagine.ui.theme.Ink,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TinyBadge(
+    text: String,
+    accent: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    val scheme = MaterialTheme.colorScheme
+    val interactionModifier = onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        Surface(
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true),
+            color = if (accent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .72f),
+            contentColor = if (accent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            border = BorderStroke(1.dp, if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+            modifier = interactionModifier
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                Box(Modifier.size(4.dp).background(if (accent) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary))
+                Spacer(Modifier.width(5.dp))
+                Text(text = text.uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    } else if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        val badgeColor = if (accent) LocalPopAccents.current.a else MaterialTheme.colorScheme.surface
+        Surface(
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true),
+            color = badgeColor.copy(alpha = if (accent) .88f else .94f),
+            contentColor = if (accent) com.lo.imagine.ui.theme.Ink else scheme.onSurfaceVariant,
+            border = BorderStroke(1.dp, scheme.primary.copy(alpha = .28f)),
+            modifier = interactionModifier
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                Box(Modifier.size(4.dp).background(MaterialTheme.colorScheme.primary))
+                Spacer(Modifier.width(5.dp))
+                Text(text = text, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    } else if (accent) {
+        Surface(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true), color = LocalPopAccents.current.a, border = BorderStroke(1.5.dp, com.lo.imagine.ui.theme.Ink), modifier = interactionModifier) {
+            Text(text = text, style = MaterialTheme.typography.labelSmall, color = com.lo.imagine.ui.theme.Ink, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+        }
+    } else {
+        Surface(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip), color = MaterialTheme.colorScheme.surfaceVariant, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .7f)), modifier = interactionModifier) {
+            Text(text = text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+        }
+    }
+}
+
+/**
+ * 波普风格的二级图标按钮：小尺寸硬描边 + 轻微硬投影，避免辅助操作退回成无背景的 Material 图标。
+ * 形状默认跟随主题：像素=直角、包豪斯=小圆角、动漫=大圆角、波普=中圆角。
+ */
+@Composable
+fun PopIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.size(36.dp),
+    enabled: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    iconTint: Color = MaterialTheme.colorScheme.onSurface,
+    iconSize: Dp = 18.dp,
+    shape: Shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip)
+) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    val scheme = MaterialTheme.colorScheme
+    val borderColor = celInk()
+    val borderWidth = when (backdrop) {
+        com.lo.imagine.ui.theme.BackdropKind.PIXEL_GRID -> 2.dp
+        com.lo.imagine.ui.theme.BackdropKind.BAUHAUS_GEO -> 1.6.dp
+        com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL -> 1.4.dp
+        else -> 1.2.dp
+    }
+    val pressed = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        val isPressed by pressed.collectIsPressedAsState()
+        val activeTint by animateColorAsState(
+            if (isPressed && enabled) MaterialTheme.colorScheme.primary else iconTint,
+            animationSpec = tween(90),
+            label = "arkIconTint"
+        )
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            interactionSource = pressed,
+            shape = shape,
+            color = if (enabled) containerColor else containerColor.copy(alpha = .48f),
+            contentColor = activeTint,
+            border = BorderStroke(borderWidth, if (enabled) borderColor else borderColor.copy(alpha = .38f)),
+            modifier = modifier.drawBehind {
+                val marker = 5.dp.toPx()
+                drawLine(scheme.primary.copy(alpha = if (isPressed) 1f else .6f), Offset(0f, 0f), Offset(marker, 0f), strokeWidth = 2f)
+                drawLine(scheme.primary.copy(alpha = if (isPressed) 1f else .6f), Offset(0f, 0f), Offset(0f, marker), strokeWidth = 2f)
+            }
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                PIcon(imageVector = icon, contentDescription = contentDescription, tint = if (enabled) activeTint else activeTint.copy(alpha = .38f), modifier = Modifier.size(iconSize))
+            }
+        }
+    } else if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        val isPressed by pressed.collectIsPressedAsState()
+        val scale by animateFloatAsState(
+            targetValue = if (isPressed && enabled) .92f else 1f,
+            animationSpec = tween(90),
+            label = "skyIconScale"
+        )
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            interactionSource = pressed,
+            shape = shape,
+            color = if (enabled) containerColor else containerColor.copy(alpha = .48f),
+            contentColor = if (enabled) iconTint else iconTint.copy(alpha = .38f),
+            border = BorderStroke(borderWidth, if (enabled) borderColor else borderColor.copy(alpha = .38f)),
+            modifier = modifier
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .drawBehind {
+                    // 静态角点（动画只留给背景与加载态）
+                    drawCircle(
+                        color = scheme.primary.copy(alpha = if (isPressed) .18f else .08f),
+                        radius = 3.dp.toPx(),
+                        center = Offset(size.width - 4.dp.toPx(), 4.dp.toPx())
+                    )
+                }
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                PIcon(imageVector = icon, contentDescription = contentDescription, tint = if (enabled) iconTint else iconTint.copy(alpha = .38f), modifier = Modifier.size(iconSize))
+            }
+        }
+    } else {
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            shape = shape,
+            color = if (enabled) containerColor else containerColor.copy(alpha = .48f),
+            contentColor = if (enabled) iconTint else iconTint.copy(alpha = .38f),
+            border = BorderStroke(borderWidth, if (enabled) borderColor else borderColor.copy(alpha = .38f)),
+            modifier = modifier
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                PIcon(imageVector = icon, contentDescription = contentDescription, tint = if (enabled) iconTint else iconTint.copy(alpha = .38f), modifier = Modifier.size(iconSize))
+            }
+        }
+    }
+}
+
+@Composable
+fun EmojiChip(
+    emoji: String,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    width: Int? = null
+) {
+    Surface(
+        onClick = onClick,
+        shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
+        color = if (selected) LocalPopAccents.current.a else MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = if (selected) com.lo.imagine.ui.theme.Ink else MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) com.lo.imagine.ui.theme.Ink
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .7f)
+        ),
+        tonalElevation = if (selected) 1.dp else 0.dp,
+        modifier = if (width != null) Modifier.width(width.dp) else Modifier
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+        ) {
+            if (emoji.isNotBlank()) {
+                Text(emoji, style = MaterialTheme.typography.labelLarge)
+            }
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+            if (selected) {
+                PIcon(
+                    PopCheck,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HorizontalChips(content: @Composable RowScope.() -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        content = content
+    )
+}
+
+@Composable
+fun ErrorPanel(message: String, onDismiss: (() -> Unit)? = null) {
+    Surface(
+        shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
+        color = MaterialTheme.colorScheme.errorContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .35f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.error,
+                shape = RoundedCornerShape(2.dp),
+                modifier = Modifier.size(width = 3.dp, height = 30.dp)
+            ) {}
+            Spacer(Modifier.width(10.dp))
+            PIcon(PopAlert, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(text = message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            if (onDismiss != null) {
+                PopIconButton(
+                    icon = PopClose,
+                    contentDescription = "关闭",
+                    onClick = onDismiss,
+                    modifier = Modifier.size(30.dp),
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    iconSize = 17.dp,
+                )
+            }
+        }
+    }
+}
+
+/** 波普风格错误弹窗：硬描边贴纸 + 硬投影，完整展示报错信息。失败只提供知晓，重试由用户自己决定。 */
+@Composable
+fun PopErrorDialog(
+    message: String,
+    title: String = "生成失败",
+    onDismiss: () -> Unit
+) {
+    val shape = com.lo.imagine.ui.theme.themedShape(PopRadius.sheet)
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(2.dp, celInk()),
+            modifier = Modifier
+                .fillMaxWidth()
+                .celShadow(shape, 3.dp, 3.dp)
+        ) {
+            Box {
+                com.lo.imagine.ui.theme.PanelMaterial(
+                    com.lo.imagine.ui.theme.LocalFlavor.current.backdrop,
+                    shape,
+                    Modifier.matchParentSize()
+                )
+                Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = CircleShape,
+                        color = LocalPopAccents.current.b,
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, celInk()),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                "!",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                    Spacer(Modifier.size(10.dp))
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState())
+                )
+                Spacer(Modifier.height(18.dp))
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                ) { Text("知道了", fontWeight = FontWeight.SemiBold) }
+            }
+            }
+        }
+    }
+}
+
+/**
+ * 波普风格确认/表单弹窗：硬描边贴纸 + 硬投影，替代 Material 默认 AlertDialog。
+ * 支持：标题图标徽章、任意表单内容、危险色确认按钮、确认前的额外动作（如“删除”）。
+ */
+@Composable
+fun PopAlertDialog(
+    title: String,
+    onDismissRequest: () -> Unit,
+    text: (@Composable ColumnScope.() -> Unit)? = null,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    confirmEnabled: Boolean = true,
+    confirmContainer: Color = MaterialTheme.colorScheme.primary,
+    confirmContentColor: Color = MaterialTheme.colorScheme.onPrimary,
+    dismissLabel: String? = null,
+    onDismiss: (() -> Unit)? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    iconContainer: Color = MaterialTheme.colorScheme.primaryContainer,
+    extraActions: (@Composable RowScope.() -> Unit)? = null
+) {
+    val shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card)
+    val buttonShape = com.lo.imagine.ui.theme.themedShape(PopRadius.field)
+    Dialog(onDismissRequest = onDismissRequest) {
+        Surface(
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(2.dp, celInk()),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box {
+                com.lo.imagine.ui.theme.PanelMaterial(
+                    com.lo.imagine.ui.theme.LocalFlavor.current.backdrop,
+                    shape,
+                    Modifier.matchParentSize()
+                )
+                Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (icon != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = iconContainer,
+                            border = BorderStroke(1.5.dp, celInk()),
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                PIcon(
+                                    icon,
+                                    contentDescription = null,
+                                    tint = iconTint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.size(10.dp))
+                    }
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                }
+                if (text != null) {
+                    Spacer(Modifier.height(12.dp))
+                    text()
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (extraActions != null) {
+                        extraActions()
+                        Spacer(Modifier.size(6.dp))
+                    }
+                    if (dismissLabel != null && onDismiss != null) {
+                        TextButton(onClick = onDismiss) {
+                            Text(dismissLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.size(6.dp))
+                    }
+                    Surface(
+                        onClick = onConfirm,
+                        enabled = confirmEnabled,
+                        shape = buttonShape,
+                        color = if (confirmEnabled) confirmContainer else confirmContainer.copy(alpha = .48f),
+                        contentColor = if (confirmEnabled) confirmContentColor else confirmContentColor.copy(alpha = .38f),
+                        border = BorderStroke(
+                            1.2.dp,
+                            if (confirmEnabled) celInk() else celInk().copy(alpha = .38f)
+                        ),
+                        modifier = Modifier
+                    ) {
+                        Text(
+                            confirmLabel,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
+                        )
+                    }
+                }
+            }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreativeBusyIcon(modifier: Modifier = Modifier) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkBusyIcon(modifier)
+        return
+    }
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyBusyIcon(modifier)
+        return
+    }
+
+    val transition = rememberInfiniteTransition(label = "creativePulse")
+    val pulse by transition.animateFloat(
+        initialValue = .86f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            tween(760, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+    Box(contentAlignment = Alignment.Center, modifier = modifier) {
+        Surface(
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field, pill = true),
+            color = LocalPopAccents.current.c.copy(alpha = .18f),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = pulse
+                    scaleY = pulse
+                    alpha = (1.54f - pulse).coerceIn(.35f, .7f)
+                }
+        ) {}
+        Surface(
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
+            color = LocalPopAccents.current.a,
+            contentColor = com.lo.imagine.ui.theme.Ink,
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, com.lo.imagine.ui.theme.Ink),
+            modifier = Modifier.fillMaxSize(.74f)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                PIcon(
+                    PopSpark,
+                    contentDescription = "处理中",
+                    modifier = Modifier.fillMaxSize(.52f).graphicsLayer {
+                        scaleX = pulse.coerceAtMost(1f)
+                        scaleY = pulse.coerceAtMost(1f)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 罗德岛任务节点：方形终端框、状态脉冲与垂直扫描，不复用波普呼吸圆。 */
+/** SKY 任务节点：糖果色圆徽章、星芒呼吸和斜向闪光，保持轻快但不喧宾夺主。 */
+@Composable
+private fun SkyBusyIcon(modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "skyBusyNode")
+    val pulse by transition.animateFloat(
+        initialValue = .82f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(820, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "skyBusyPulse"
+    )
+    val shimmer by transition.animateFloat(
+        initialValue = -.35f,
+        targetValue = 1.35f,
+        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart),
+        label = "skyBusyShimmer"
+    )
+    Box(contentAlignment = Alignment.Center, modifier = modifier) {
+        Surface(
+            shape = CircleShape,
+            color = scheme.secondary.copy(alpha = .12f),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = pulse
+                    scaleY = pulse
+                    alpha = (1.48f - pulse).coerceIn(.30f, .66f)
+                }
+        ) {}
+        Surface(
+            shape = CircleShape,
+            color = scheme.primaryContainer,
+            border = BorderStroke(1.5.dp, scheme.primary.copy(alpha = .72f)),
+            modifier = Modifier.fillMaxSize(.76f).drawBehind {
+                val x = size.width * shimmer
+                drawLine(
+                    Color.White.copy(alpha = .48f),
+                    Offset(x - size.height, size.height),
+                    Offset(x, 0f),
+                    strokeWidth = size.height * .25f
+                )
+            }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                PIcon(PopSpark, contentDescription = "处理中", tint = scheme.primary, modifier = Modifier.fillMaxSize(.48f))
+            }
+        }
+    }
+}
+
+/** 罗德岛任务节点：方形终端框、状态脉冲与垂直扫描，不复用波普呼吸圆。 */
+@Composable
+private fun ArkBusyIcon(modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "arkBusyNode")
+    val scan by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(1180, easing = LinearEasing),
+            RepeatMode.Restart
+        ),
+        label = "arkBusyScan"
+    )
+    val signal by transition.animateFloat(
+        initialValue = .32f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(540, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "arkBusySignal"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
+            .background(scheme.surfaceVariant.copy(alpha = .72f))
+            .drawBehind {
+                val stroke = 1.5.dp.toPx()
+                val bracket = size.minDimension * .28f
+                drawLine(scheme.primary, Offset.Zero, Offset(bracket, 0f), stroke)
+                drawLine(scheme.primary, Offset.Zero, Offset(0f, bracket), stroke)
+                drawLine(
+                    scheme.primary,
+                    Offset(size.width - bracket, size.height),
+                    Offset(size.width, size.height),
+                    stroke
+                )
+                drawLine(
+                    scheme.primary,
+                    Offset(size.width, size.height - bracket),
+                    Offset(size.width, size.height),
+                    stroke
+                )
+                val y = scan * size.height
+                drawRect(
+                    color = scheme.primary.copy(alpha = .12f),
+                    topLeft = Offset(0f, (y - 4.dp.toPx()).coerceAtLeast(0f)),
+                    size = Size(size.width, 8.dp.toPx().coerceAtMost(size.height))
+                )
+                drawLine(
+                    color = scheme.primary.copy(alpha = .9f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+    ) {
+        PIcon(
+            PopSpark,
+            contentDescription = "处理中",
+            tint = scheme.onSurface,
+            modifier = Modifier.fillMaxSize(.48f)
+        )
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(3.dp)
+                .size(4.dp)
+                .background(scheme.secondary.copy(alpha = signal))
+        )
+    }
+}
+
+/**
+ * 加载循环动画：AI 渲染马赛克。
+ * 一条高亮扫描线自左向右扫过，主题色马赛克块逐格「点亮」——隐喻 AI 正在逐块生成画面；
+ * 扫完后整体渐隐，重新开始下一轮。优雅、安静、贴合绘画产品。
+ */
+@Composable
+fun RunnerDinoLoader(
+    modifier: Modifier = Modifier,
+    trackHeight: Dp = 72.dp
+) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkRenderLoader(modifier = modifier, trackHeight = trackHeight)
+        return
+    }
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyRenderLoader(modifier = modifier, trackHeight = trackHeight)
+        return
+    }
+
+    val transition = rememberInfiniteTransition(label = "render")
+    val cycle = 2600
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(cycle, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "renderProgress"
+    )
+    val accents = LocalPopAccents.current
+    val tileColors = listOf(accents.a, accents.b, accents.c, accents.d, accents.e)
+    val scanColor = MaterialTheme.colorScheme.onSurface
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(trackHeight)
+    ) {
+        val w = size.width
+        val h = size.height
+        val cols = 7
+        val rows = 3
+        val gap = 3f
+        val cw = (w - gap * (cols + 1)) / cols
+        val ch = (h - gap * (rows + 1)) / rows
+        val scanX = progress * (w + cw * 2f) - cw
+
+        // 周期末整体渐隐（扫完 → 熄灭 → 重来）
+        val fadeOut = if (progress > .90f) (1f - (progress - .90f) / .10f).coerceIn(0f, 1f) else 1f
+
+        // 马赛克块：扫描线扫过即点亮；刚点亮的块更亮（正在渲染），已扫过的稳定半透明
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                val x = gap + c * (cw + gap)
+                val y = gap + r * (ch + gap)
+                val centerX = x + cw / 2f
+                val reveal = ((scanX - centerX) / cw * 1.15f + .08f).coerceIn(0f, 1f)
+                if (reveal > 0f && fadeOut > 0f) {
+                    val color = tileColors[(r * 3 + c * 5) % tileColors.size]
+                    val alpha = (.20f + .5f * reveal) * fadeOut
+                    drawRoundRect(
+                        color = color.copy(alpha = alpha),
+                        topLeft = Offset(x, y),
+                        size = Size(cw, ch),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(5f, 5f)
+                    )
+                }
+            }
+        }
+
+        // 扫描光晕（线右侧渐隐）
+        if (scanX < w) {
+            drawRect(
+                brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    colors = listOf(
+                        scanColor.copy(alpha = .14f * fadeOut),
+                        androidx.compose.ui.graphics.Color.Transparent
+                    ),
+                    startX = scanX,
+                    endX = scanX + cw * 1.8f
+                ),
+                topLeft = Offset(scanX, 0f),
+                size = Size(cw * 1.8f, h)
+            )
+            // 扫描线
+            drawLine(
+                color = scanColor.copy(alpha = .85f * fadeOut),
+                start = Offset(scanX, 0f),
+                end = Offset(scanX, h),
+                strokeWidth = 2f
+            )
+            // 线端菱形光标
+            val cy = h / 2f
+            val cursor = androidx.compose.ui.graphics.Path().apply {
+                moveTo(scanX, cy - 5f)
+                lineTo(scanX + 5f, cy)
+                lineTo(scanX, cy + 5f)
+                lineTo(scanX - 5f, cy)
+                close()
+            }
+            drawPath(cursor, scanColor.copy(alpha = fadeOut))
+        }
+    }
+}
+
+/**
+ * SKY 渲染轨：一条柔光沿细轨缓缓往返（取代旧版九宫格糖果块——九种彩色方块并排，
+ * 看起来像调色盘而不是加载动画）。轨道极细、光带两端渐隐、头部一枚微光点，
+ * Reverse 往返意味着循环端点永远平滑、没有任何硬切。
+ */
+@Composable
+private fun SkyRenderLoader(
+    modifier: Modifier = Modifier,
+    trackHeight: Dp = 56.dp
+) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "skyRenderTrack")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(2300, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "skyRenderSweep"
+    )
+    val breathe by transition.animateFloat(
+        initialValue = .72f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "skyRenderBreathe"
+    )
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(trackHeight)
+    ) {
+        val w = size.width
+        val h = size.height
+        val cy = h / 2f
+        val trackH = 3.dp.toPx()
+        val radius = androidx.compose.ui.geometry.CornerRadius(trackH, trackH)
+        // 底轨：一条极淡的细线
+        drawRoundRect(
+            color = scheme.primary.copy(alpha = .10f),
+            topLeft = Offset(0f, cy - trackH / 2f),
+            size = Size(w, trackH),
+            cornerRadius = radius
+        )
+        // 流动光带：固定长度、两端渐隐（primary → secondary 渐变），沿轨缓缓往返
+        val seg = w * .34f
+        val endX = seg / 2f + (w - seg) * sweep
+        val left = (endX - seg).coerceAtLeast(0f)
+        val right = endX.coerceAtMost(w)
+        if (right > left) {
+            drawRoundRect(
+                brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    colors = listOf(
+                        scheme.primary.copy(alpha = 0f),
+                        scheme.primary.copy(alpha = .68f),
+                        scheme.secondary.copy(alpha = .62f),
+                        scheme.primary.copy(alpha = 0f)
+                    ),
+                    startX = endX - seg,
+                    endX = endX
+                ),
+                topLeft = Offset(left, cy - trackH / 2f),
+                size = Size(right - left, trackH),
+                cornerRadius = radius
+            )
+            // 头部微光：柔和光晕 + 白芯，随呼吸缩放
+            drawCircle(
+                color = scheme.primary.copy(alpha = .22f * breathe),
+                radius = trackH * 2.6f * breathe,
+                center = Offset(right, cy)
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = .72f),
+                radius = trackH * .85f,
+                center = Offset(right, cy)
+            )
+        }
+    }
+}
+
+@Composable
+fun LoadingLabel(text: String) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkLoadingLabel(text)
+        return
+    }
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyLoadingLabel(text)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        CreativeBusyIcon(Modifier.size(38.dp))
+        Spacer(Modifier.width(12.dp))
+        AnimatedContent(
+            targetState = text,
+            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(110)) },
+            label = "loadingText"
+        ) { value ->
+            Text(value, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+/** SKY 加载标签：状态徽章与文字切换保持轻盈，并用细扫线连接到当前任务。 */
+@Composable
+private fun SkyLoadingLabel(text: String) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "skyLoadingLabel")
+    val sweep by transition.animateFloat(
+        initialValue = -.25f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing), RepeatMode.Restart),
+        label = "skyLoadingSweep"
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.card))
+            .background(scheme.surface.copy(alpha = .92f))
+            .drawBehind {
+                // 底线上的一段流光：固定长度、两端渐隐，替代斜跨整卡的斜线
+                val seg = size.width * .22f
+                val n = ((sweep + .25f) / 1.5f).coerceIn(0f, 1f)
+                val endX = 12.dp.toPx() + n * (size.width - 24.dp.toPx() + seg) - seg
+                val segStart = (endX - seg).coerceAtLeast(12.dp.toPx())
+                val segWidth = seg.coerceAtMost(size.width - 12.dp.toPx() - segStart)
+                if (segWidth > 0f) {
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(
+                                scheme.primary.copy(alpha = 0f),
+                                scheme.primary.copy(alpha = .55f),
+                                scheme.primary.copy(alpha = 0f)
+                            ),
+                            startX = endX - seg,
+                            endX = endX
+                        ),
+                        topLeft = Offset(segStart, size.height - 1.5f),
+                        size = Size(segWidth, 1.5f)
+                    )
+                }
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        SkyBusyIcon(Modifier.size(28.dp))
+        Spacer(Modifier.width(10.dp))
+        AnimatedContent(
+            targetState = text,
+            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
+            label = "skyLoadingText"
+        ) { value ->
+            Column {
+                Text(
+                    "SKY // CREATING",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.primary,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = scheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text("✦", color = scheme.secondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun ArkLoadingLabel(text: String) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "arkLoadingLabel")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart),
+        label = "arkLoadingSweep"
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
+            .background(scheme.surfaceVariant.copy(alpha = .62f))
+            .drawBehind {
+                val y = size.height * sweep
+                drawLine(
+                    scheme.primary.copy(alpha = .72f),
+                    Offset(0f, y),
+                    Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        ArkBusyIcon(Modifier.size(28.dp))
+        Spacer(Modifier.width(10.dp))
+        AnimatedContent(
+            targetState = text,
+            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
+            label = "arkLoadingText"
+        ) { value ->
+            Column {
+                Text(
+                    "RENDER // ACTIVE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.primary,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = scheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            "●",
+            color = scheme.secondary,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black
+        )
+    }
+}
+
+/** 长任务使用有阶段感的稳定状态，不让用户盯着一个小转圈。 */
+@Composable
+fun GenerationStatus(
+    elapsedSeconds: Int,
+    mode: String,
+    completed: Int = 0,
+    total: Int = 1,
+    modifier: Modifier = Modifier
+) {
+    val backdrop = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.ARK_TERMINAL) {
+        ArkGenerationStatus(
+            elapsedSeconds = elapsedSeconds,
+            mode = mode,
+            completed = completed,
+            total = total,
+            modifier = modifier
+        )
+        return
+    }
+    if (backdrop == com.lo.imagine.ui.theme.BackdropKind.SKY) {
+        SkyGenerationStatus(
+            elapsedSeconds = elapsedSeconds,
+            mode = mode,
+            completed = completed,
+            total = total,
+            modifier = modifier
+        )
+        return
+    }
+    val accents = LocalPopAccents.current
+    val stageLabel = if (total > 1) {
+        if (completed == 0) "生成中 · 排队请求" else "生成中 · 已完成 $completed / $total"
+    } else {
+        "生成中 · 等待模型返回"
+    }
+    val progressFraction = if (total <= 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, celInk()),
+        modifier = modifier
+            .fillMaxWidth()
+            .celShadow(RoundedCornerShape(20.dp), dx = 2.dp, dy = 2.dp)
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stageLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${elapsedSeconds}s",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            // AI 渲染马赛克——暗示"模型正在生成画面"
+            RunnerDinoLoader(trackHeight = 56.dp)
+            Spacer(Modifier.height(10.dp))
+            // 真实进度条：按已完成张数/总张数填充（不是按时间假装）
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .14f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progressFraction)
+                        .background(accents.a)
+                )
+            }
+            if (total > 1) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    if (completed == 0) "正在并行生成 $total 张" else "已完成 $completed / $total 张",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/** SKY 生成状态：糖果色轨道、星芒节点和真实批次进度。 */
+@Composable
+private fun SkyGenerationStatus(
+    elapsedSeconds: Int,
+    mode: String,
+    completed: Int,
+    total: Int,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val progress = if (total <= 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
+    val title = when (mode.lowercase()) {
+        "edit", "retouch" -> "SKY // RETOUCHING"
+        else -> "SKY // CREATING"
+    }
+    val transition = rememberInfiniteTransition(label = "skyGenerationMotion")
+    val pulse by transition.animateFloat(
+        initialValue = .42f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(820, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "skyGenerationPulse"
+    )
+    Surface(
+        color = scheme.surface.copy(alpha = .96f),
+        contentColor = scheme.onSurface,
+        shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card),
+        border = BorderStroke(1.dp, scheme.primary.copy(alpha = .24f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier
+                .drawBehind {
+                    drawCircle(
+                        color = scheme.tertiary.copy(alpha = .06f * pulse),
+                        radius = 30.dp.toPx() + 8.dp.toPx() * pulse,
+                        center = Offset(size.width - 20.dp.toPx(), 18.dp.toPx())
+                    )
+                }
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(scheme.primary.copy(alpha = .65f + .35f * pulse), CircleShape)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface, fontWeight = FontWeight.Black)
+                Spacer(Modifier.weight(1f))
+                Text("T+${elapsedSeconds}s", style = MaterialTheme.typography.labelSmall, color = scheme.primary, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (total > 1) "SPARKS  ${completed}/${total}" else "WAITING FOR MODEL",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (progress >= 1f) "READY" else "SPARKS ONLINE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (progress >= 1f) scheme.tertiary else scheme.secondary,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            SkyRenderLoader(trackHeight = 38.dp)
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape)
+                    .background(scheme.primary.copy(alpha = .12f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                listOf(scheme.primary, scheme.secondary, scheme.tertiary)
+                            )
+                        )
+                )
+            }
+            if (total > 1) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (completed == 0) "正在并行生成 $total 张" else "已完成 $completed / $total 张",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArkGenerationStatus(
+    elapsedSeconds: Int,
+    mode: String,
+    completed: Int,
+    total: Int,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val progress = if (total <= 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
+    val title = when (mode.lowercase()) {
+        "edit", "retouch" -> "RETOUCH // PROCESSING"
+        else -> "CREATION // PROCESSING"
+    }
+    Surface(
+        color = scheme.surface,
+        contentColor = scheme.onSurface,
+        shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
+        border = BorderStroke(1.5.dp, scheme.outline),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier
+                .drawBehind {
+                    val marker = 26.dp.toPx()
+                    drawLine(scheme.primary, Offset(0f, 0f), Offset(marker, 0f), 2.dp.toPx())
+                    drawLine(scheme.secondary, Offset(size.width - marker, size.height), Offset(size.width, size.height), 2.dp.toPx())
+                }
+                .padding(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = scheme.onSurface,
+                    fontWeight = FontWeight.Black
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "T+${elapsedSeconds}s",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (total > 1) "OUTPUT  ${completed}/${total}" else "AWAITING MODEL RESPONSE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (progress >= 1f) "COMPLETE" else "LINK // STABLE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (progress >= 1f) scheme.secondary else scheme.tertiary,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            ArkRenderLoader(trackHeight = 42.dp)
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
+                    .background(scheme.outline.copy(alpha = .22f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress)
+                        .background(scheme.primary)
+                )
+            }
+        }
+    }
+}
+
+/** 罗德岛渲染轨：单色线框、节点刻度和扫描光标，避免波普马赛克色块。 */
+@Composable
+private fun ArkRenderLoader(
+    modifier: Modifier = Modifier,
+    trackHeight: Dp = 56.dp
+) {
+    val scheme = MaterialTheme.colorScheme
+    val transition = rememberInfiniteTransition(label = "arkRenderTrack")
+    val progress by transition.animateFloat(
+        initialValue = -.12f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(tween(1900, easing = LinearEasing), RepeatMode.Restart),
+        label = "arkRenderProgress"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = .42f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(620, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "arkRenderPulse"
+    )
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(trackHeight)
+    ) {
+        val mid = size.height / 2f
+        val left = 8.dp.toPx()
+        val right = size.width - left
+        val line = 1.dp.toPx()
+        val active = (left + (right - left) * progress).coerceIn(left, right)
+        drawLine(scheme.outline.copy(alpha = .55f), Offset(left, mid), Offset(right, mid), line)
+        val tickCount = 12
+        for (i in 0..tickCount) {
+            val x = left + (right - left) * i / tickCount
+            val tick = if (i % 3 == 0) 10.dp.toPx() else 5.dp.toPx()
+            drawLine(scheme.outline.copy(alpha = .62f), Offset(x, mid - tick), Offset(x, mid + tick), line)
+        }
+        if (progress >= 0f) {
+            drawLine(scheme.primary.copy(alpha = .34f), Offset(left, mid), Offset(active, mid), 3.dp.toPx())
+            drawLine(scheme.primary, Offset(active, mid - 16.dp.toPx()), Offset(active, mid + 16.dp.toPx()), 1.5.dp.toPx())
+            drawCircle(scheme.primary.copy(alpha = .12f * pulse), 12.dp.toPx(), Offset(active, mid))
+            val diamond = androidx.compose.ui.graphics.Path().apply {
+                moveTo(active, mid - 5.dp.toPx())
+                lineTo(active + 5.dp.toPx(), mid)
+                lineTo(active, mid + 5.dp.toPx())
+                lineTo(active - 5.dp.toPx(), mid)
+                close()
+            }
+            drawPath(diamond, scheme.primary)
+        }
+        drawLine(scheme.secondary, Offset(right - 22.dp.toPx(), 0f), Offset(right, 0f), 2.dp.toPx())
+        drawLine(scheme.tertiary, Offset(left, size.height), Offset(left + 22.dp.toPx(), size.height), 2.dp.toPx())
+    }
+}
+
+@Composable
+fun ImageResultCard(
+    data: ImageData,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val cardShape = com.lo.imagine.ui.theme.themedShape(PopRadius.card)
+    Surface(
+        onClick = onClick,
+        shape = cardShape,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, celInk()),
+        modifier = modifier.celShadow(cardShape, dx = 2.dp, dy = 2.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize().clip(cardShape)) {
+            if (!data.url.isNullOrBlank()) {
+                AsyncImage(
+                    model = data.url,
+                    contentDescription = "生成结果",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                val bitmap = remember(data.b64Json) { data.b64Json?.let { ImageUtils.decodeBase64(it) } }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "生成结果",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        PIcon(PopAlert, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = .78f),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp)
+            ) {
+                PIcon(
+                    PopSpark,
+                    contentDescription = null,
+                    modifier = Modifier.padding(7.dp).size(14.dp),
+                    tint = MaterialTheme.colorScheme.inversePrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyResults(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.fillMaxWidth().padding(vertical = 38.dp)
+    ) {
+        Surface(
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
+            color = LocalPopAccents.current.c,
+            contentColor = com.lo.imagine.ui.theme.Ink,
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, com.lo.imagine.ui.theme.Ink),
+            modifier = Modifier
+                .size(68.dp)
+                .celShadow(com.lo.imagine.ui.theme.themedShape(PopRadius.field), dx = 2.dp, dy = 2.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                PIcon(
+                    PopGallery,
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(13.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+fun CopyableModel(model: String) {
+    var copied by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TinyBadge(model, accent = true)
+        PopIconButton(
+            icon = if (copied) PopCheck else PopCopy,
+            contentDescription = if (copied) "已复制" else "复制模型名",
+            onClick = { copied = true },
+            modifier = Modifier.size(30.dp),
+            iconSize = 16.dp
+        )
+    }
+}
+
+@Composable
+fun InfoHint(text: String) {
+    Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+        PIcon(PopInfo, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(7.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+fun DropdownField(
+    selected: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    menuHeight: Int = 300,
+    leadingContent: (@Composable () -> Unit)? = null,
+    optionLeadingContent: (@Composable (String) -> Unit)? = null
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var anchorWidthPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { anchorWidthPx = it.size.width }
+    ) {
+        val fieldShape = com.lo.imagine.ui.theme.themedShape(PopRadius.field)
+        Surface(
+            onClick = { expanded = !expanded },
+            shape = fieldShape,
+            color = if (expanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f) else MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            border = BorderStroke(1.5.dp, celInk()),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)
+            ) {
+                if (leadingContent != null) {
+                    leadingContent()
+                    Spacer(Modifier.width(9.dp))
+                }
+                Text(
+                    selected,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                PIcon(
+                    if (expanded) PopChevronUp else PopChevronDown,
+                    contentDescription = if (expanded) "收起选项" else "展开选项",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
+            containerColor = MaterialTheme.colorScheme.surface,
+            shadowElevation = 6.dp,
+            border = BorderStroke(1.5.dp, celInk()),
+            modifier = Modifier
+                .then(
+                    if (anchorWidthPx > 0) Modifier.width(with(density) { anchorWidthPx.toDp() })
+                    else Modifier.fillMaxWidth()
+                )
+                .heightIn(max = menuHeight.dp)
+        ) {
+            options.forEach { option ->
+                val isSelected = option == selected
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (optionLeadingContent != null) {
+                                optionLeadingContent(option)
+                                Spacer(Modifier.width(9.dp))
+                            }
+                            Text(
+                                option,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (isSelected) {
+                            PIcon(
+                                PopCheck,
+                                contentDescription = "已选",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                    modifier = Modifier.background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
+                        else Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+}
+
+/** 与 DropdownField 共用同一套波普容器皮肤的数字输入框。 */
+@Composable
+fun PopNumericField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onCommit: () -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "1–4",
+    enabled: Boolean = true
+) {
+    val shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field)
+    var focused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val containerColor = if (focused) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    Surface(
+        shape = shape,
+        color = containerColor,
+        tonalElevation = 0.dp,
+        border = BorderStroke(1.5.dp, celInk()),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold
+            ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(onDone = {
+                onCommit()
+                keyboard?.hide()
+                focusManager.clearFocus()
+            }),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { state ->
+                    if (focused && !state.isFocused) onCommit()
+                    focused = state.isFocused
+                }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            decorationBox = { innerTextField ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .48f)
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+        )
+    }
+}
+
+/** 波普风格文本输入框：硬描边 + 硬投影贴纸容器，替代 Material OutlinedTextField。 */
+@Composable
+fun PopTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    placeholder: String? = null,
+    enabled: Boolean = true,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null
+) {
+    val shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field)
+    var focused by remember { mutableStateOf(false) }
+    val containerColor = if (focused && enabled) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    Column(modifier = modifier) {
+        if (label != null) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Surface(
+            shape = shape,
+            color = containerColor,
+            tonalElevation = 0.dp,
+            border = BorderStroke(
+                1.5.dp,
+                if (enabled) celInk() else celInk().copy(alpha = .42f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                if (leadingContent != null) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .then(if (singleLine) Modifier else Modifier.padding(top = 1.dp))
+                            .size(20.dp)
+                    ) {
+                        leadingContent()
+                    }
+                    Spacer(Modifier.width(9.dp))
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = singleLine,
+                    minLines = minLines,
+                    maxLines = maxLines,
+                    visualTransformation = visualTransformation,
+                    keyboardOptions = keyboardOptions,
+                    keyboardActions = keyboardActions,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { focused = it.isFocused },
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart
+                        ) {
+                            if (value.isEmpty() && placeholder != null) {
+                                Text(
+                                    placeholder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .48f)
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+                if (trailingContent != null) {
+                    Spacer(Modifier.width(6.dp))
+                    trailingContent()
+                }
+            }
+        }
+    }
+}
+
+/** 波普风格滑杆：硬描边轨道 + 贴纸圆钮，替代 Material Slider。 */
+@Composable
+fun PopSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    enabled: Boolean = true
+) {
+    val span = valueRange.endInclusive - valueRange.start
+    val fraction = if (span <= 0f) 0f else ((value - valueRange.start) / span).coerceIn(0f, 1f)
+    val trackShape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true)
+    val thumbShape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true)
+    val density = LocalDensity.current
+    BoxWithConstraints(
+        modifier = modifier
+            .height(28.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else .45f },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val trackWidthPx = constraints.maxWidth.toFloat()
+        val thumbSizePx = with(density) { 22.dp.toPx() }
+        val thumbTravel = with(density) { (trackWidthPx - thumbSizePx).coerceAtLeast(0f).toDp() }
+        fun positionToValue(x: Float): Float {
+            val usable = (trackWidthPx - thumbSizePx).coerceAtLeast(1f)
+            val f = ((x - thumbSizePx / 2f) / usable).coerceIn(0f, 1f)
+            return valueRange.start + f * span
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(trackShape)
+                .background(MaterialTheme.colorScheme.surface)
+        )
+        if (fraction > 0f) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fraction)
+                    .height(10.dp)
+                    .clip(trackShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .border(1.5.dp, celInk(), trackShape)
+        )
+        Box(
+            Modifier
+                .offset(x = thumbTravel * fraction)
+                .size(22.dp)
+                .clip(thumbShape)
+                .background(LocalPopAccents.current.a)
+                .border(1.5.dp, celInk(), thumbShape)
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(enabled, valueRange, trackWidthPx) {
+                    if (!enabled) return@pointerInput
+                    detectTapGestures { offset -> onValueChange(positionToValue(offset.x)) }
+                }
+                .pointerInput(enabled, valueRange, trackWidthPx) {
+                    if (!enabled) return@pointerInput
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        onValueChange(positionToValue(change.position.x))
+                    }
+                }
+        )
+    }
+}
+
+/** 波普风格开关：硬描边滑轨 + 贴纸圆钮，替代 Material Switch。 */
+@Composable
+fun PopSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val trackShape = com.lo.imagine.ui.theme.themedShape(PopRadius.field, pill = true)
+    val knobShape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip, pill = true)
+    val knobOffset by animateDpAsState(
+        targetValue = if (checked) 22.dp else 0.dp,
+        animationSpec = tween(180),
+        label = "popSwitchKnob"
+    )
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) LocalPopAccents.current.a else MaterialTheme.colorScheme.surface,
+        animationSpec = tween(180),
+        label = "popSwitchTrack"
+    )
+    Box(
+        modifier = modifier
+            .size(width = 48.dp, height = 26.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else .45f }
+            .clip(trackShape)
+            .background(trackColor)
+            .border(1.5.dp, celInk(), trackShape)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            Modifier
+                .offset(x = knobOffset + 3.dp)
+                .size(20.dp)
+                .clip(knobShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.5.dp, celInk(), knobShape)
+        )
+    }
+}
+
+/** 波普风格选择片：硬描边 + 选中硬投影贴纸，替代 Material FilterChip。 */
+@Composable
+fun PopChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip)
+    val isSky = com.lo.imagine.ui.theme.LocalFlavor.current.backdrop ==
+        com.lo.imagine.ui.theme.BackdropKind.SKY
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = shape,
+        color = if (selected) {
+            if (isSky) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+        } else MaterialTheme.colorScheme.surface,
+        contentColor = if (selected) {
+            if (isSky) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onPrimary
+        } else MaterialTheme.colorScheme.onSurfaceVariant,
+        border = BorderStroke(1.5.dp, celInk()),
+        modifier = modifier
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            if (selected) {
+                PIcon(PopCheck, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(5.dp))
+            }
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+/** 波普忙碌指示：星芒旋转，替代 Material CircularProgressIndicator。 */
+@Composable
+fun PopBusySpinner(
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary
+) {
+    val transition = rememberInfiniteTransition(label = "popBusySpin")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
+        label = "popBusyAngle"
+    )
+    PIcon(
+        PopSpark,
+        contentDescription = "处理中",
+        tint = tint,
+        modifier = modifier.graphicsLayer { rotationZ = angle }
+    )
+}
+
+@Composable
+fun ImagePreview(
+    bitmap: Bitmap?,
+    modifier: Modifier = Modifier,
+    contentDescription: String = "图片"
+) {
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = contentDescription,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
+        )
+    } else {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.field))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            PIcon(PopAlert, contentDescription = null)
+        }
+    }
+}

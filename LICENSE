@@ -1,0 +1,34 @@
+MIT License
+
+Copyright (c) 2026 长乐未央 (Discode ID: 1466791961003294804)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 第三方声明 / Third-party notices
+
+本项目**不包含**任何第三方非开源代码。开发过程中参考过的以下材料已从仓库中排除：
+
+- `st-chatu8 (智绘姬)` SillyTavern 文生图扩展 —— 依据 Aladdin Free Public License
+  授权（非开源许可证，禁止商业机构收费分发）。本项目仅以其**公开的接口行为**为兼容目标，
+  自行实现解析逻辑，未复制其源代码，其文件未纳入本仓库。
+- `NovelAI` 相关接口名称与字段为各自权利人的商标/接口规范，本项目与 NovelAI 官方无隶属关系。
+
+应用内置的 `app/src/main/res/raw/opening_film.mp4` 等媒体素材由本项目自行制作，随本仓库一同以 MIT 授权发布。

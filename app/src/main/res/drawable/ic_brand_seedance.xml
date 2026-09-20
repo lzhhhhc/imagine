@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Downloaded brand mark: https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-svg/icons/bytedance.svg
+     Source and attribution: assets/brand_logos/NOTICE.txt. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp" android:height="28dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M14.944,18.587 L13.24,18.142 L13.24,10.01 L15.064,9.548 C16.064,9.294 16.904,9.087 16.944,9.095 C16.976,9.095 17,11.33 17,14.067 L17,19.04 L16.824,19.032 C16.72,19.032 15.872,18.825 14.944,18.586 Z" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M7,16.542 C7,13.806 7.024,11.562 7.064,11.562 C7.096,11.554 7.936,11.762 8.944,12.016 L10.76,12.477 L10.744,16.527 L10.72,20.576 L9.088,20.998 C8.192,21.228 7.352,21.443 7.232,21.467 L7,21.523 L7,16.543 Z" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M19.24,12.477 C19.24,3.447 19.248,2.962 19.384,3.002 C19.456,3.026 20.168,3.209 20.96,3.408 C21.752,3.615 22.536,3.813 22.704,3.853 L23,3.933 L22.984,12.493 L22.96,21.061 L21.336,21.475 C20.448,21.705 19.608,21.912 19.48,21.945 L19.24,22 L19.24,12.477 Z" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M1,12.509 C1,7.831 1.024,4.004 1.064,4.004 C1.096,4.004 1.936,4.211 2.936,4.458 L4.76,4.919 L4.76,12.501 C4.76,16.661 4.744,20.075 4.728,20.075 C4.704,20.075 3.856,20.29 2.848,20.545 L1,21.013 L1,12.508 Z" />
+</vector>

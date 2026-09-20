@@ -1,0 +1,413 @@
+package com.lo.imagine.ui.settings
+
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.lo.imagine.data.AppUpdater
+import com.lo.imagine.data.UpdateInfo
+import com.lo.imagine.data.UpdateSource
+import com.lo.imagine.ui.PIcon
+import com.lo.imagine.ui.PopBusySpinner
+import com.lo.imagine.ui.RefIcons
+import com.lo.imagine.ui.celInk
+import com.lo.imagine.ui.theme.PopRadius
+import com.lo.imagine.ui.theme.RefHud
+import com.lo.imagine.ui.theme.themedShape
+import kotlinx.coroutines.launch
+
+/** 检查更新的四种稳定状态；互斥，避免出现「既在下载又说失败」。 */
+private enum class UpdatePhase { IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, READY, FAILED }
+
+private fun formatSize(bytes: Long): String = when {
+    bytes <= 0 -> ""
+    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    else -> "%d KB".format(bytes / 1024)
+}
+
+/**
+ * 设置 → 关于：检查更新卡。
+ * 拉取 GitHub Release → 展示本次更新内容 → 下载 APK → 拉起系统安装器。
+ */
+@Composable
+internal fun UpdateCard(modifier: Modifier = Modifier) {
+    val c = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updater = remember { AppUpdater(context) }
+    val currentVersion = remember { updater.currentVersionName() }
+
+    var phase by remember { mutableStateOf(UpdatePhase.IDLE) }
+    var info by remember { mutableStateOf<UpdateInfo?>(null) }
+    var message by remember { mutableStateOf("") }
+    var progress by remember { mutableStateOf(0f) }
+    var showNotes by remember { mutableStateOf(false) }
+
+    fun check() {
+        if (phase == UpdatePhase.CHECKING || phase == UpdatePhase.DOWNLOADING) return
+        phase = UpdatePhase.CHECKING
+        message = ""
+        scope.launch {
+            updater.checkForUpdate()
+                .onSuccess { found ->
+                    if (found == null) {
+                        phase = UpdatePhase.UP_TO_DATE
+                        message = "当前 v$currentVersion 已是最新版本"
+                    } else {
+                        info = found
+                        phase = UpdatePhase.AVAILABLE
+                        showNotes = true
+                    }
+                }
+                .onFailure {
+                    phase = UpdatePhase.FAILED
+                    message = it.message ?: "检查更新失败"
+                }
+        }
+    }
+
+    fun download() {
+        val target = info ?: return
+        // 已经下载完的同名包直接进安装，不重复下载
+        updater.cachedApk(target)?.let { cached ->
+            phase = UpdatePhase.READY
+            installWithPermission(updater, context, cached) { result ->
+                result.onFailure {
+                    phase = UpdatePhase.FAILED
+                    message = it.message ?: "无法打开安装器"
+                }
+            }
+            return
+        }
+        phase = UpdatePhase.DOWNLOADING
+        progress = 0f
+        message = ""
+        scope.launch {
+            updater.download(target) { p -> progress = p }
+                .onSuccess { file ->
+                    phase = UpdatePhase.READY
+                    installWithPermission(updater, context, file) { result ->
+                        result.onFailure {
+                            phase = UpdatePhase.FAILED
+                            message = it.message ?: "无法打开安装器"
+                        }
+                    }
+                }
+                .onFailure {
+                    phase = UpdatePhase.FAILED
+                    message = it.message ?: "下载失败"
+                }
+        }
+    }
+
+    Surface(
+        shape = themedShape(PopRadius.card),
+        color = c.surface,
+        border = BorderStroke(.8.dp, c.outlineVariant),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(34.dp).background(c.primaryContainer, themedShape(PopRadius.chip)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PIcon(RefIcons.Refresh, null, Modifier.size(18.dp), tint = c.onPrimaryContainer)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("应用更新", color = c.onSurfaceVariant, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(
+                        "UPDATE", fontFamily = RefHud, fontSize = 9.sp, lineHeight = 12.sp,
+                        letterSpacing = 1.sp, color = c.primary
+                    )
+                }
+                Text(
+                    "v$currentVersion",
+                    fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+                    color = c.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(.7.dp).background(c.outlineVariant))
+            Spacer(Modifier.height(12.dp))
+
+            when (phase) {
+                UpdatePhase.IDLE -> Text(
+                    "从 GitHub Release 检查新版本，下载后由系统安装器覆盖安装。",
+                    fontSize = 11.sp, lineHeight = 17.sp, color = c.onSurfaceVariant
+                )
+
+                UpdatePhase.CHECKING -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    PopBusySpinner(modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("正在检查更新…", fontSize = 11.sp, lineHeight = 17.sp, color = c.onSurfaceVariant)
+                }
+
+                UpdatePhase.UP_TO_DATE -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    PIcon(RefIcons.Check, null, Modifier.size(15.dp), tint = c.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(message, fontSize = 11.sp, lineHeight = 17.sp, color = c.onSurface)
+                }
+
+                UpdatePhase.AVAILABLE -> Column {
+                    Text(
+                        "发现新版本 ${info?.tag.orEmpty()}",
+                        fontSize = 13.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.onSurface
+                    )
+                    val meta = listOfNotNull(
+                        info?.publishedAt?.takeIf { it.isNotBlank() }?.let { "发布于 $it" },
+                        info?.apkSize?.takeIf { it > 0 }?.let { formatSize(it) }
+                    ).joinToString(" · ")
+                    if (meta.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(meta, fontSize = 10.sp, lineHeight = 15.sp, color = c.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        onClick = { showNotes = true },
+                        shape = themedShape(PopRadius.chip),
+                        color = c.surfaceContainerLow,
+                        border = BorderStroke(.8.dp, c.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PIcon(RefIcons.Inspect, null, Modifier.size(14.dp), tint = c.primary)
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                "查看本次更新内容", fontSize = 11.sp, lineHeight = 16.sp,
+                                color = c.onSurface, modifier = Modifier.weight(1f)
+                            )
+                            PIcon(RefIcons.Chevron, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                UpdatePhase.DOWNLOADING -> Column {
+                    Text(
+                        "正在下载 ${info?.tag.orEmpty()}… ${(progress * 100).toInt()}%",
+                        fontSize = 11.sp, lineHeight = 17.sp, color = c.onSurface
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = c.primary,
+                        trackColor = c.surfaceVariant
+                    )
+                }
+
+                UpdatePhase.READY -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    PIcon(RefIcons.Check, null, Modifier.size(15.dp), tint = c.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "安装包已就绪，若未自动弹出请点下方按钮。",
+                        fontSize = 11.sp, lineHeight = 17.sp, color = c.onSurface
+                    )
+                }
+
+                UpdatePhase.FAILED -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    PIcon(RefIcons.Close, null, Modifier.size(15.dp), tint = c.error)
+                    Spacer(Modifier.width(8.dp))
+                    Text(message, fontSize = 11.sp, lineHeight = 17.sp, color = c.error)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            val primaryLabel = when (phase) {
+                UpdatePhase.CHECKING -> "检查中…"
+                UpdatePhase.DOWNLOADING -> "下载中…"
+                UpdatePhase.AVAILABLE -> "下载并安装"
+                UpdatePhase.READY -> "打开安装器"
+                UpdatePhase.FAILED -> "重试"
+                else -> "检查更新"
+            }
+            val primaryEnabled = phase != UpdatePhase.CHECKING && phase != UpdatePhase.DOWNLOADING
+            Surface(
+                onClick = {
+                    when (phase) {
+                        UpdatePhase.AVAILABLE -> download()
+                        UpdatePhase.READY -> {
+                            val pending = info?.let { updater.cachedApk(it) }
+                            if (pending == null) {
+                                phase = UpdatePhase.FAILED
+                                message = "安装包已失效，请重新下载"
+                            } else {
+                                installWithPermission(updater, context, pending) { result ->
+                                    result.onFailure {
+                                        phase = UpdatePhase.FAILED
+                                        message = it.message ?: "无法打开安装器"
+                                    }
+                                }
+                            }
+                        }
+                        else -> check()
+                    }
+                },
+                enabled = primaryEnabled,
+                shape = themedShape(PopRadius.field),
+                color = if (primaryEnabled) c.primaryContainer else c.surfaceVariant,
+                contentColor = if (primaryEnabled) c.onPrimaryContainer else c.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .semantics {
+                        contentDescription = primaryLabel
+                        liveRegion = LiveRegionMode.Polite
+                    }
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(primaryLabel, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+            TextButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(UpdateSource.RELEASES_PAGE))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)
+            ) {
+                Text("在浏览器中查看全部版本", fontSize = 11.sp, color = c.onSurfaceVariant)
+            }
+        }
+    }
+
+    // 本次更新内容：应用自有弹窗样式（主题底色 + 墨线描边），不用系统白底弹窗
+    if (showNotes) {
+        val target = info
+        Dialog(
+            onDismissRequest = { showNotes = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                shape = themedShape(PopRadius.sheet),
+                border = BorderStroke(2.dp, celInk()),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 26.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "本次更新内容",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { showNotes = false }) { Text("关闭") }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        target?.title.orEmpty().ifBlank { target?.tag.orEmpty() },
+                        fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (!target?.publishedAt.isNullOrBlank()) {
+                        Text(
+                            "发布于 ${target?.publishedAt}",
+                            fontSize = 10.sp, lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            target?.notes.orEmpty().ifBlank { "该版本没有提供更新说明。" },
+                            fontSize = 12.sp, lineHeight = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Surface(
+                        onClick = {
+                            showNotes = false
+                            if (phase == UpdatePhase.AVAILABLE) download()
+                        },
+                        shape = themedShape(PopRadius.field),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (phase == UpdatePhase.AVAILABLE) "下载并安装" else "关闭",
+                                fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 拉起安装器。Android 8.0+ 未授予「安装未知应用」时系统会静默拒绝安装，
+ * 因此先检查权限：没有就带用户去该应用的权限页，而不是让按钮看起来毫无反应。
+ */
+private fun installWithPermission(
+    updater: AppUpdater,
+    context: android.content.Context,
+    apk: java.io.File,
+    onResult: (Result<Unit>) -> Unit
+) {
+    if (!updater.canInstallPackages()) {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val opened = runCatching { context.startActivity(intent) }.isSuccess
+        onResult(
+            Result.failure(
+                IllegalStateException(
+                    if (opened) "请先允许「安装未知应用」，返回后再点一次"
+                    else "请在系统设置中允许安装未知应用"
+                )
+            )
+        )
+        return
+    }
+    onResult(updater.install(apk))
+}

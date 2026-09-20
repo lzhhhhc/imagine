@@ -803,6 +803,8 @@ PresetDropdown(
             Spacer(Modifier.height(12.dp))
             Text("作品与配置保存在本机", color = c.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp)
             Spacer(Modifier.height(20.dp))
+            UpdateCard()
+            Spacer(Modifier.height(20.dp))
             ProducerCreditCard()
         }
     )

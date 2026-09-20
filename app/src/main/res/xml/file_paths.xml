@@ -3,4 +3,8 @@
     <cache-path
         name="shared_images"
         path="share/" />
+    <!-- 应用自更新：下载到 cache/apk/ 的安装包通过 FileProvider 交给系统安装器 -->
+    <cache-path
+        name="update_apk"
+        path="apk/" />
 </paths>

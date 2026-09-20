@@ -365,7 +365,9 @@ class ImageRepository(private val context: Context) {
         characterDesc: String,
         envDesc: String,
         durationSec: String,
-        videoAspect: String
+        videoAspect: String,
+        images: List<String> = emptyList(),
+        referenceLabels: String = ""
     ): Result<DirectorStepTurn> = withContext(Dispatchers.IO) {
         if (state.isReview) return@withContext Result.failure(IllegalStateException("框架已进入确认阶段"))
         llmApiConfigurationError(settings)?.let { return@withContext Result.failure(IllegalArgumentException(it)) }
@@ -383,13 +385,14 @@ class ImageRepository(private val context: Context) {
             appendLine("【本地素材文字描述】人物：${characterDesc.ifBlank { "未选" }}")
             appendLine("环境：${envDesc.ifBlank { "未选" }}")
             appendLine("【当前界面参数，仍需用户确认】${durationSec}s，$videoAspect")
+            appendLine(referenceLabels)
             appendLine("【对话记录】")
             append(transcript)
         }
         try {
             val resp = api.chat(ChatCompletionRequest(model = model, messages = listOf(
                 ChatMessage("system", directorInterviewSystem(engine, state.stageIndex)),
-                ChatMessage("user", materials)
+                ChatMessage("user", directorMultimodalContent(materials, images))
             )))
             val err = resp.error?.message
             if (!err.isNullOrBlank()) return@withContext Result.failure(Exception(err))
@@ -401,6 +404,48 @@ class ImageRepository(private val context: Context) {
         } catch (e: Exception) {
             Result.failure(Exception(describeError(e)))
         }
+    }
+
+    suspend fun createDirectorStoryboard(
+        settings: AppSettings, engine: DirectorEngine, brief: String,
+        totalSeconds: Int, aspect: String, images: List<String>
+    ): Result<DirectorStoryboard> = withContext(Dispatchers.IO) {
+        try {
+            llmApiConfigurationError(settings)?.let { throw IllegalArgumentException(it) }
+            val api = buildApi(settings.llmBaseUrl, settings.llmApiKey) ?: error("请配置润色 LLM")
+            val response = api.chat(ChatCompletionRequest(model = settings.llmModel.trim(), messages = listOf(
+                ChatMessage("system", directorProductionSystem(engine, totalSeconds, aspect)),
+                ChatMessage("user", directorMultimodalContent(brief, images)))))
+            response.error?.message?.takeIf { it.isNotBlank() }?.let { error(it) }
+            val raw = response.choices?.firstOrNull()?.message?.content ?: response.choices?.firstOrNull()?.text
+            require(raw is String && raw.isNotBlank()) { "导演返回为空" }
+            Result.success(parseDirectorStoryboard(raw, totalSeconds, aspect))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { Result.failure(e) }
+    }
+
+    /** Exactly one request using the selected protocol, preserving every reference image. */
+    suspend fun generateDirectorFrame(
+        settings: AppSettings, prompt: String, size: String, images: List<ByteArray>
+    ): ApiResult = withContext(Dispatchers.IO) {
+        try {
+            imageApiConfigurationError(settings)?.let { throw IllegalArgumentException(it) }
+            val api = buildApi(settings.baseUrl, settings.apiKey) ?: error("绘图配置无效")
+            val response = if (images.isEmpty()) api.generate(GenerateRequest(
+                model = settings.model.trim(), prompt = prompt, n = 1, size = size)) else {
+                require(settings.editMode == "edits_multipart") {
+                    "人物/环境参考图生成首帧需要在绘图设置中选择 multipart 修图协议及支持多图的模型"
+                }
+                val fields = mapOf("model" to settings.model.trim(), "prompt" to prompt, "n" to "1", "size" to size)
+                    .mapValues { it.value.toRequestBody("text/plain".toMediaType()) }
+                api.directorEdit(fields, images.mapIndexed { i, bytes ->
+                    MultipartBody.Part.createFormData("image[]", "reference_${i + 1}.jpg",
+                        bytes.toRequestBody("image/jpeg".toMediaType()))
+                })
+            }
+            handle(response, 1)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { ApiResult.Error(e.message ?: "首帧生成失败") }
     }
 
     suspend fun polishDirectorPrompt(

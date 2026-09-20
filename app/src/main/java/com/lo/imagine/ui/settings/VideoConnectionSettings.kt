@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import com.lo.imagine.data.SettingsRepository
+import com.lo.imagine.data.VideoProtocol
+import com.lo.imagine.ui.DropdownField
 import com.lo.imagine.data.VideoApiSettings
 import com.lo.imagine.data.apiEndpointError
 import com.lo.imagine.data.apiKeyFormatError
@@ -66,7 +68,7 @@ internal fun VideoConnectionSettings(repository: SettingsRepository) {
     val result by flow.collectAsStateWithLifecycle(initialValue = null)
     val stored = result?.getOrNull()
     var open by rememberSaveable { mutableStateOf(false) }
-    val ready = stored != null && videoApiConfigurationError(stored) == null
+    val ready = stored != null && videoApiConfigurationError(stored) == null && VideoProtocol.fromId(stored.protocolId) != null
     SettingsConnectionRow(
         icon = Icons.Outlined.Videocam,
         title = "视频 API",
@@ -105,7 +107,7 @@ private fun VideoConnectionDialog(
     var presetError by remember { mutableStateOf<String?>(null) }
     var hint by remember { mutableStateOf<String?>(null) }
     val writes = remember { Mutex() }
-    val ready = videoApiConfigurationError(draft) == null
+    val ready = videoApiConfigurationError(draft) == null && VideoProtocol.fromId(draft.protocolId) != null
 
     fun edit(value: VideoApiSettings) {
         if (saving) return
@@ -156,7 +158,7 @@ private fun VideoConnectionDialog(
         title = "视频 API",
         subtitle = "独立的视频服务连接",
         status = if (ready) "连接信息已填写" else "连接信息待完善",
-        statusDetail = "当前仅保存配置，尚未接入视频生成",
+        statusDetail = "导演台 → 分镜 → 开始视频制作；按所选协议提交并查询任务",
         connected = ready,
         icon = { PIcon(Icons.Outlined.Videocam, null,
             tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(23.dp)) },
@@ -183,7 +185,13 @@ private fun VideoConnectionDialog(
         )
         presetError?.let { VideoSettingsError(it) }
         Spacer(Modifier.height(12.dp))
-        SettingsConsoleGroup(title = "服务端点", subtitle = "按服务商文档填写基础地址") {
+        SettingsConsoleGroup(title = "视频协议", subtitle = "按服务商文档选择，与模型能力一致") {
+            DropdownField(selected = VideoProtocol.fromId(draft.protocolId)?.label ?: "请选择协议",
+                options = VideoProtocol.entries.map { it.label },
+                onSelect = { label -> edit(draft.copy(protocolId = VideoProtocol.entries.first { it.label == label }.id)) })
+        }
+        Spacer(Modifier.height(12.dp))
+        SettingsConsoleGroup(title = "服务端点", subtitle = "Grok 填根地址或 /v1；Seedance Ark 填根地址或 /api/v3") {
             PopTextField(
                 value = draft.baseUrl,
                 onValueChange = { edit(draft.copy(baseUrl = it)) },

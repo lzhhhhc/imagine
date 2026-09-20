@@ -142,6 +142,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         val VIDEO_BASE_URL = stringPreferencesKey("video_base_url")
         val VIDEO_API_KEY = stringPreferencesKey("video_api_key")
         val VIDEO_MODEL = stringPreferencesKey("video_model")
+        val VIDEO_PROTOCOL = stringPreferencesKey("video_protocol")
         val VIDEO_PRESETS = stringPreferencesKey("custom_video_presets_json")
         val ACTIVE_VIDEO_PRESET = stringPreferencesKey("active_video_preset_name")
         val MAX_PARALLEL = androidx.datastore.preferences.core.intPreferencesKey("max_parallel")
@@ -238,7 +239,8 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             presets = p[Keys.VIDEO_PRESETS]?.let {
                 gson.fromJson(it, Array<CustomVideoPreset>::class.java).toList()
             } ?: emptyList(),
-            activePresetName = p[Keys.ACTIVE_VIDEO_PRESET]
+            activePresetName = p[Keys.ACTIVE_VIDEO_PRESET],
+            protocolId = p[Keys.VIDEO_PROTOCOL]
         )
     }
 
@@ -249,6 +251,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             p[Keys.VIDEO_BASE_URL] = video.baseUrl
             p[Keys.VIDEO_API_KEY] = video.apiKey
             p[Keys.VIDEO_MODEL] = video.model
+            if (video.protocolId == null) p.remove(Keys.VIDEO_PROTOCOL) else p[Keys.VIDEO_PROTOCOL] = video.protocolId
             p[Keys.VIDEO_PRESETS] = gson.toJson(video.presets)
             val active = video.activePresetName
             if (active == null) p.remove(Keys.ACTIVE_VIDEO_PRESET) else p[Keys.ACTIVE_VIDEO_PRESET] = active

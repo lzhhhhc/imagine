@@ -49,41 +49,24 @@ internal fun DirectorInlineInput(content: @Composable () -> Unit) {
 }
 
 @Composable
-internal fun DirectorHeader(compact: Boolean, onStoryboard: () -> Unit, onMaterials: () -> Unit) {
+internal fun DirectorHeader(shotCount: Int, onStoryboard: () -> Unit, onMaterials: () -> Unit) {
     val c = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxWidth()) {
-        if (!compact) ArkHeroArtwork("director", Modifier.matchParentSize())
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp)) {
-            if (!compact) {
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("RHODES ISLAND  /  CREATIVE", fontSize = 10.sp, lineHeight = 14.sp,
-                        fontWeight = FontWeight.SemiBold, letterSpacing = .6.sp, color = c.primary)
-                    Text("03 / 05", fontSize = 10.sp, color = c.onSurfaceVariant)
-                }
+    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("导演台", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.onBackground,
+                modifier = Modifier.weight(1f))
+            TextButton(onClick = onStoryboard, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                PIcon(PopFilm, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (shotCount == 0) "分镜" else "分镜 $shotCount", fontSize = 12.sp)
             }
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("导演台", fontSize = if (compact) 20.sp else 26.sp,
-                        lineHeight = if (compact) 26.sp else 32.sp, fontWeight = FontWeight.Bold, color = c.onBackground)
-                    if (!compact) Text("一步一问，把想法变成镜头", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-                }
-                TextButton(onClick = onStoryboard, modifier = Modifier.heightIn(min = 48.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    PIcon(PopFilm, null, Modifier.size(18.dp), tint = c.primary)
-                    Spacer(Modifier.width(4.dp))
-                    Text("分镜", fontSize = 12.sp)
-                }
-                TextButton(onClick = onMaterials, modifier = Modifier.heightIn(min = 48.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    PIcon(PopGallery, null, Modifier.size(18.dp), tint = c.primary)
-                    Spacer(Modifier.width(4.dp))
-                    Text("素材", fontSize = 12.sp)
-                }
+            TextButton(onClick = onMaterials, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                PIcon(PopGallery, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("素材", fontSize = 12.sp)
             }
-            Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
-            Box(Modifier.fillMaxWidth().height(.7.dp).background(c.outlineVariant))
         }
+        Box(Modifier.fillMaxWidth().height(.7.dp).background(c.outlineVariant))
     }
 }
 

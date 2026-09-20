@@ -1,11 +1,12 @@
 package com.lo.imagine.data
 
-/** 视频连接预设独立于绘图、语言模型和 ComfyUI，不预设服务商或请求协议。 */
+/** 视频连接预设独立于绘图、语言模型和 ComfyUI，协议由用户明确选择。 */
 data class CustomVideoPreset(
     val name: String,
     val baseUrl: String = "",
     val apiKey: String = "",
-    val model: String = ""
+    val model: String = "",
+    val protocolId: String? = null
 )
 
 /** 一次读取/保存整组视频配置，保证当前连接、预设内容和选择始终一致。 */
@@ -14,7 +15,8 @@ data class VideoApiSettings(
     val apiKey: String = "",
     val model: String = "",
     val presets: List<CustomVideoPreset> = emptyList(),
-    val activePresetName: String? = null
+    val activePresetName: String? = null,
+    val protocolId: String? = null
 ) {
     fun normalized(): VideoApiSettings = copy(
         baseUrl = baseUrl.trim(), apiKey = apiKey.trim(), model = model.trim()
@@ -26,7 +28,7 @@ data class VideoApiSettings(
         val connection = normalized()
         return copy(presets = presets.mapIndexed { i, preset ->
             if (i == index) preset.copy(baseUrl = connection.baseUrl,
-                apiKey = connection.apiKey, model = connection.model) else preset
+                apiKey = connection.apiKey, model = connection.model, protocolId = connection.protocolId) else preset
         })
     }
 
@@ -35,7 +37,7 @@ data class VideoApiSettings(
         val synced = syncActivePreset()
         val target = synced.presets.first { it.name == name }
         return synced.copy(baseUrl = target.baseUrl, apiKey = target.apiKey,
-            model = target.model, activePresetName = target.name)
+            model = target.model, activePresetName = target.name, protocolId = target.protocolId)
     }
 
     fun createBlankPreset(): VideoApiSettings {
@@ -44,7 +46,7 @@ data class VideoApiSettings(
         var name = "新视频预设"
         var index = 2
         while (name in names) name = "新视频预设 ${index++}"
-        return synced.copy(baseUrl = "", apiKey = "", model = "",
+        return synced.copy(baseUrl = "", apiKey = "", model = "", protocolId = null,
             presets = synced.presets + CustomVideoPreset(name), activePresetName = name)
     }
 

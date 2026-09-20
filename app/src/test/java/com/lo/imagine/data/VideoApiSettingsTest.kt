@@ -168,6 +168,19 @@ class VideoApiSettingsTest {
         assertNotNull(llmApiConfigurationError(videoOnly))
     }
 
+    @Test fun `explicit video protocol survives preset switching and isolated saves`() = withRepository { repo ->
+        val current = video.copy(protocolId = VideoProtocol.GROK15.id,
+            presets = listOf(CustomVideoPreset("A"), CustomVideoPreset("B", "https://ark.example/api/v3", "ark-key", "ep-model", VideoProtocol.SEEDANCE.id)),
+            activePresetName = "A")
+        repo.saveVideoSettings(current.selectPreset("B"))
+        assertEquals(VideoProtocol.SEEDANCE.id, repo.videoSettings.first().protocolId)
+        assertEquals(VideoProtocol.GROK15.id, repo.videoSettings.first().selectPreset("A").protocolId)
+        repo.saveConnections(otherChannels)
+        assertEquals(VideoProtocol.SEEDANCE.id, repo.videoSettings.first().protocolId)
+        repo.saveVideoSettings(repo.videoSettings.first().createBlankPreset())
+        assertNull(repo.videoSettings.first().protocolId)
+    }
+
     @Test fun `video rejects malformed endpoints and keys without disclosing credentials`() {
         listOf("video.example", "https://", "ftp://video.example", "https://bad host/v1",
             "https://video.example:99999", "https://video.example?key=secret", "https://video.example#part")

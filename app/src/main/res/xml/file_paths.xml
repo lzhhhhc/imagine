@@ -7,4 +7,5 @@
     <cache-path
         name="update_apk"
         path="apk/" />
+    <files-path name="director_videos" path="director_videos/" />
 </paths>

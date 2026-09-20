@@ -17,6 +17,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import com.lo.imagine.data.DirectorShot as Shot
+import com.lo.imagine.data.selectedDirectorAssets
+import com.lo.imagine.data.directorFrameSize
 import com.lo.imagine.data.DirectorEngine
 import com.lo.imagine.data.DirectorInterviewState
 import com.lo.imagine.data.DIRECTOR_STAGES
@@ -150,15 +153,6 @@ private const val KIND_SCENE = "scene"
 
 private fun DirectorAsset.kindOrDefault(): String = kind ?: KIND_CHARACTER
 
-/** 分镜条目：首帧参考图（注入或生成）、本镜秒数、本镜画面提示词 */
-private data class Shot(
-    val id: Long = 0,
-    val imagePath: String? = null,
-    val endImagePath: String? = null,
-    val seconds: String = "3",
-    val prompt: String = ""
-)
-
 private data class ChatBubble(val mine: Boolean, val text: String)
 
 private val shotGson = com.google.gson.Gson()
@@ -209,8 +203,11 @@ private fun DirectorWorkspace(
     val keyboard = LocalSoftwareKeyboardController.current
 
     // ===== 分镜要素：人物与环境置顶 =====
-    var characterDesc by rememberSaveable { mutableStateOf("") }
-    var envDesc by rememberSaveable { mutableStateOf("") }
+    var selectedAssetIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var showStoryboard by remember { mutableStateOf(false) }
+    var showProduction by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(false) }
+    var replaceStoryboardDialog by remember { mutableStateOf(false) }
     // ===== Engine-specific staged interview =====
     var chatMessages by rememberSaveable(stateSaver = chatBubbleSaver) { mutableStateOf(listOf(ChatBubble(false, com.lo.imagine.data.directorOpening()))) }
     var chatInput by rememberSaveable { mutableStateOf("") }
@@ -228,9 +225,7 @@ private fun DirectorWorkspace(
     }
 
     // ===== 输出 =====
-    var draft by rememberSaveable { mutableStateOf("") }
     var polished by rememberSaveable { mutableStateOf("") }
-    var polishing by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var copiedKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(copiedKey) {
@@ -242,12 +237,19 @@ private fun DirectorWorkspace(
     LaunchedEffect(Unit) {
         assets = withContext(Dispatchers.IO) { settingsRepository.loadDirectorAssets() }
     }
+    val selectedAssets = selectedAssetIds.mapNotNull { id -> assets.find { it.id == id } }
+    val characterDesc = selectedAssets.filter { it.kindOrDefault() == KIND_CHARACTER }
+        .joinToString("；") { "${it.name}：${it.desc}" }
+    val envDesc = selectedAssets.filter { it.kindOrDefault() == KIND_SCENE }
+        .joinToString("；") { "${it.name}：${it.desc}" }
+    fun currentAssets() = selectedDirectorAssets(selectedAssetIds, assets)
     /** 当前打开的素材弹窗类型；null=关闭 */
     var assetPickerKind by remember { mutableStateOf<String?>(null) }
     var showAddAsset by remember { mutableStateOf(false) }
     var addAssetKind by rememberSaveable { mutableStateOf(KIND_CHARACTER) }
     var assetToDelete by remember { mutableStateOf<DirectorAsset?>(null) }
-fun persistAssets(next: List<DirectorAsset>) {
+    fun persistAssets(next: List<DirectorAsset>) {
+        // Keep missing selected IDs visible to validation instead of silently dropping references.
         assets = next
         scope.launch(Dispatchers.IO) { settingsRepository.saveDirectorAssets(next) }
     }
@@ -263,19 +265,18 @@ fun persistAssets(next: List<DirectorAsset>) {
     fun replaceShots(next: List<Shot>) {
         shotsJson = shotGson.toJson(next)
     }
-    var nextShotId by rememberSaveable { mutableStateOf(1L) }
+    var nextShotId by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var generatingShotId by remember { mutableStateOf<Long?>(null) }
     var pendingInjectTarget by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     var durationDialog by remember { mutableStateOf(false) }
     var aspectDialog by remember { mutableStateOf(false) }
     var composing by remember { mutableStateOf(false) }
-    var polishedTitle by rememberSaveable { mutableStateOf("润色结果") }
 
-    fun buildDraft(): String {
+    fun buildDraft(totalSeconds: String = durationSec): String {
         val lines = mutableListOf("【目标工程】${engine.fullName}", interview.brief())
         if (characterDesc.isNotBlank()) lines += "【人物】${characterDesc.trim()}"
         if (envDesc.isNotBlank()) lines += "【环境】${envDesc.trim()}"
-        lines += "【参数】${durationSec.trim().ifEmpty { "5" }}s · $videoAspect"
+        lines += "【参数】${totalSeconds.trim()}s · $videoAspect"
         return lines.joinToString("\n")
     }
 
@@ -287,12 +288,11 @@ fun persistAssets(next: List<DirectorAsset>) {
     }
 
     fun revisitStage(index: Int) {
-        if (chatThinking || polishing || composing) return
+        if (chatThinking || composing) return
         val previous = interview.summaries[index]
         interview = interview.revisit(index)
         chatDone = false
         polished = ""
-        draft = ""
         error = null
         generationError = null
         chatMessages = chatMessages + ChatBubble(false,
@@ -316,15 +316,22 @@ fun persistAssets(next: List<DirectorAsset>) {
             chatMessages.joinToString("\n") { (if (it.mine) "用户：" else "导演：") + it.text }
         scope.launch {
             try {
-                repository.composeDirectorStoryboard(settings, engine, brief, emptyList())
-                    .onSuccess { script ->
-                        polished = script
-                        polishedTitle = "${engine.label} 分镜脚本"
-                        chatMessages = chatMessages + ChatBubble(false, script)
+                val refs = withContext(Dispatchers.IO) { readDirectorAssets(currentAssets()) }
+                repository.createDirectorStoryboard(settings, engine, brief + "\n" + referenceLegend(refs),
+                    durationSec.toInt(), videoAspect, refs.map { it.base64 })
+                    .onSuccess { result ->
+                        val generated = result.shots.map { it.copy(id = nextShotId++) }
+                        replaceShots(generated)
+                        polished = result.script()
+                        chatMessages = chatMessages + ChatBubble(false,
+                            "已整理 ${generated.size} 个分镜，共 ${durationSec} 秒，$videoAspect。已写入上方「分镜」，可逐镜修改、核对素材并开始制作。")
                         chatDone = true
+                        showStoryboard = true
                     }
                     .onFailure { e -> generationError = "脚本生成失败：${e.message ?: "请求未完成"}。框架已保留，可直接重试。" }
-            } finally { chatThinking = false }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { generationError = e.message ?: "分镜整理失败，请重试" }
+            finally { chatThinking = false }
         }
     }
 
@@ -348,8 +355,9 @@ fun persistAssets(next: List<DirectorAsset>) {
         val transcript = chatMessages.joinToString("\n") { (if (it.mine) "用户：" else "导演：") + it.text }
         scope.launch {
             try {
+                val refs = withContext(Dispatchers.IO) { readDirectorAssets(currentAssets()) }
                 repository.directorStepTurn(settings, engine, submittedState, transcript,
-                    characterDesc, envDesc, durationSec, videoAspect)
+                    characterDesc, envDesc, durationSec, videoAspect, refs.map { it.base64 }, referenceLegend(refs))
                     .onSuccess { turn ->
                         interview = submittedState.receive(turn)
                         turn.durationSec?.let { durationSec = it }
@@ -362,7 +370,9 @@ fun persistAssets(next: List<DirectorAsset>) {
                         chatInput = text
                         error = "本轮未完成：${e.message ?: "请求失败"}。回答已保留，重试后继续。"
                     }
-            } finally { chatThinking = false }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "参考图读取失败，请重试" }
+            finally { chatThinking = false }
         }
     }
 
@@ -383,72 +393,22 @@ fun persistAssets(next: List<DirectorAsset>) {
     }
 
     fun restartInterview() {
-        if (chatThinking || polishing || composing) return
+        if (chatThinking || composing) return
         interview = DirectorInterviewState()
         chatMessages = listOf(ChatBubble(false, com.lo.imagine.data.directorOpening()))
         chatInput = ""; chatDone = false; error = null; generationError = null
-        draft = ""; polished = ""; characterDesc = ""; envDesc = ""
+        polished = ""; selectedAssetIds = emptyList()
         durationSec = "5"; videoAspect = "16:9"
         replaceShots(emptyList())
         focusManager.clearFocus()
         keyboard?.hide()
     }
 
-    fun polish() {
-        if (draft.isBlank() || polishing) return
-        com.lo.imagine.data.llmApiConfigurationError(settings)?.let { error = it; return }
-        polishing = true
-        polishedTitle = "润色结果"
-        error = null
-        scope.launch {
-            repository.polishDirectorPrompt(settings, engine, draft)
-                .onSuccess { polished = it }
-                .onFailure { error = it.message ?: "润色失败" }
-            polishing = false
-        }
-    }
+    fun isAssetActive(a: DirectorAsset): Boolean = a.id in selectedAssetIds
 
-    /**
-     * 素材在字段中的可匹配文本候选（整段子串匹配，绝不按逗号切段——
-     * 素材描述本身就是逗号分隔的 tag 串，切段会把描述拆碎导致永远匹配不上）。
-     * 兼容历史数据的三种形态：「名称：描述」、纯描述、纯名称。
-     */
-    fun assetTokens(a: DirectorAsset): List<String> {
-        val name = a.name.trim()
-        val desc = a.desc.trim()
-        return listOfNotNull(
-            if (name.isNotBlank() && desc.isNotBlank()) "$name：$desc" else null,
-            desc.ifBlank { null },
-            name.ifBlank { null }
-        ).distinct()
-    }
-
-    /** 素材是否处于「启用」态：任一候选整段子串命中即可 */
-    fun isAssetActive(a: DirectorAsset): Boolean {
-        val field = if (a.kindOrDefault() == KIND_SCENE) envDesc else characterDesc
-        return assetTokens(a).any { it.isNotBlank() && field.contains(it) }
-    }
-
-    /** 素材开关：点击启用（绿色包边，追加段），再点取消（移除子串并清理残留分隔符）；弹窗不关 */
     fun toggleAsset(a: DirectorAsset) {
-        val isScene = a.kindOrDefault() == KIND_SCENE
-        val current = if (isScene) envDesc else characterDesc
-        val tokens = assetTokens(a)
-        // 取消：优先移除最长（信息最全）的命中子串
-        val hit = tokens.filter { it.isNotBlank() && current.contains(it) }
-            .maxByOrNull { it.length }
-        val next = if (hit != null) {
-            current.replaceFirst(hit, "")
-                .replace(Regex("\\s*[，,]\\s*[，,]\\s*"), "，")   // 合并残留双逗号
-                .trim().trimStart('，', ',').trimEnd('，', ',').trim()
-        } else {
-            val seg = tokens.first()
-            if (current.isBlank()) seg
-            else current.trimEnd('，', ',', '。', '.', ';', '；', ' ', '\n') + "，" + seg
-        }
-        if (isScene) envDesc = next else characterDesc = next
-        invalidateFramework(if (isScene) 2 else 1)
-        // 卡片自身的绿边/✓ 态就是反馈，不再往对话流插噪音气泡
+        selectedAssetIds = if (a.id in selectedAssetIds) selectedAssetIds - a.id else selectedAssetIds + a.id
+        invalidateFramework(if (a.kindOrDefault() == KIND_SCENE) 2 else 1)
     }
 
     // ===== 分镜头操作 =====
@@ -493,7 +453,7 @@ fun persistAssets(next: List<DirectorAsset>) {
                         )
                     } else raw
                     val dir = File(context.filesDir, "director_shots").apply { mkdirs() }
-                    val f = File(dir, if (isEnd) "shot_${targetId}_end.jpg" else "shot_$targetId.jpg")
+                    val f = File(dir, "${engine.id}_${targetId}_${java.util.UUID.randomUUID()}.jpg")
                     FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
                     f.absolutePath
                 } catch (e: Exception) {
@@ -524,82 +484,60 @@ fun persistAssets(next: List<DirectorAsset>) {
             if (characterDesc.isNotBlank()) append("。人物：").append(characterDesc.trim())
             if (envDesc.isNotBlank()) append("。环境：").append(envDesc.trim())
         }
-        val size = when (videoAspect) {
-            "9:16" -> "864x1536"
-            "1:1" -> "1024x1024"
-            else -> "1536x864"
-        }
+        val size = directorFrameSize(videoAspect)
         scope.launch {
-            var failMsg: String? = null
-            var savedPath: String? = null
-            withContext(Dispatchers.IO) {
-                try {
-                    when (
-                        val r = repository.generate(
-                            settings = settings,
-                            prompt = promptText,
-                            negativePrompt = "lowres, blurry, watermark",
-                            size = size,
-                            count = 1
-                        )
-                    ) {
+            try {
+                val path = withContext(Dispatchers.IO) {
+                    val refs = readDirectorAssets(currentAssets())
+                    when (val result = repository.generateDirectorFrame(settings,
+                        promptText + "\n" + referenceLegend(refs), size, refs.map { it.bytes })) {
+                        is ApiResult.Error -> error(result.message)
                         is ApiResult.Success -> {
-                            val bmp = r.images.firstOrNull()?.let { repository.resolveBitmap(it) }
-                            if (bmp == null) {
-                                failMsg = "首帧返回了空数据（可能被截断）"
-                            } else {
+                            val bitmap = result.images.firstOrNull()?.let { repository.resolveBitmap(it) }
+                                ?: error("首帧返回了空图片")
+                            try {
                                 val dir = File(context.filesDir, "director_shots").apply { mkdirs() }
-                                val f = File(dir, "shot_${shot.id}.jpg")
-                                FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-                                savedPath = f.absolutePath
-                            }
+                                val file = File(dir, "${engine.id}_${shot.id}_${java.util.UUID.randomUUID()}.jpg")
+                                FileOutputStream(file).use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it)) { "首帧保存失败" } }
+                                file.absolutePath
+                            } finally { bitmap.recycle() }
                         }
-                        is ApiResult.Error -> failMsg = r.message ?: "首帧生成失败"
                     }
-                } catch (e: Exception) {
-                    failMsg = e.message ?: "首帧生成失败"
                 }
-            }
-            generatingShotId = null
-            if (failMsg != null) error = failMsg
-            if (savedPath != null) updateShot(shot.id) { it.copy(imagePath = savedPath) }
+                updateShot(shot.id) { it.copy(imagePath = path) }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "首帧生成失败" }
+            finally { generatingShotId = null }
         }
     }
 
     /** Manual storyboard uses the same selected prompt target, with explicit image-to-shot mapping. */
     fun composeStoryboard() {
         if (shots.isEmpty()) { error = "先添加至少一个分镜"; return }
-        if (composing || chatThinking || polishing) return
+        if (composing || chatThinking) return
         com.lo.imagine.data.llmApiConfigurationError(settings)?.let { error = it; return }
         composing = true
         error = null
-        val brief = buildDraft()
         val submittedShots = shots.toList()
+        val brief = buildDraft(submittedShots.sumOf { it.seconds.toIntOrNull() ?: 0 }.toString())
         scope.launch {
             try {
-                val (refImages, shotLines) = withContext(Dispatchers.IO) {
-                    val images = mutableListOf<String>()
-                    fun reference(path: String?, label: String): String {
-                        if (path == null) return ""
-                        val bitmap = BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = 2 })
-                            ?: throw IllegalStateException("$label 图片读取失败，请重新选择")
-                        try {
-                            val bytes = java.io.ByteArrayOutputStream()
-                            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 82, bytes)) { "$label 图片编码失败" }
-                            images += android.util.Base64.encodeToString(bytes.toByteArray(), android.util.Base64.NO_WRAP)
-                            return "$label = 参考图${images.size}；"
-                        } finally { bitmap.recycle() }
+                val refs = withContext(Dispatchers.IO) {
+                    readDirectorAssets(currentAssets()) + submittedShots.flatMapIndexed { index, shot ->
+                        listOfNotNull(shot.imagePath?.let { readDirectorReference(it, "分镜${index + 1}首帧") },
+                            shot.endImagePath?.let { readDirectorReference(it, "分镜${index + 1}尾帧") })
                     }
-                    val lines = submittedShots.mapIndexed { index, shot ->
-                        "分镜${index + 1} · ${shot.seconds.ifBlank { "3" }}s：" +
-                            reference(shot.imagePath, "首帧") + reference(shot.endImagePath, "尾帧") +
-                            "画面：${shot.prompt.ifBlank { "待补充" }}"
-                    }
-                    images.toList() to lines
                 }
-                repository.composeDirectorStoryboard(settings, engine, brief, shotLines, refImages)
-                    .onSuccess { polished = it; polishedTitle = "${engine.label} 分镜脚本" }
-                    .onFailure { error = it.message ?: "分镜脚本生成失败" }
+                val total = submittedShots.sumOf { it.seconds.toIntOrNull() ?: error("请填写每镜时长") }
+                val shotLines = submittedShots.mapIndexed { i, shot -> "分镜${i + 1} · ${shot.seconds}秒：${shot.prompt}" }
+                val result = repository.createDirectorStoryboard(settings, engine,
+                    brief + "\n" + referenceLegend(refs) + "\n手动分镜（保持数量与时长）：\n" + shotLines.joinToString("\n"),
+                    total, videoAspect, refs.map { it.base64 }).getOrThrow()
+                require(result.shots.size == submittedShots.size && result.shots.zip(submittedShots).all { it.first.seconds == it.second.seconds }) {
+                    "返回分镜改变了手动时长或数量，原稿已保留，请重试"
+                }
+                replaceShots(submittedShots.zip(result.shots).map { (old, generated) -> old.copy(prompt = generated.prompt) })
+                polished = result.script()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -609,7 +547,6 @@ fun persistAssets(next: List<DirectorAsset>) {
     }
     var restartDialog by remember { mutableStateOf(false) }
     var materialLibraryOpen by remember { mutableStateOf(false) }
-    var showStoryboard by remember { mutableStateOf(false) }
     if (materialLibraryOpen) {
         MaterialLibraryDialog(
             settings = settings,
@@ -619,42 +556,49 @@ fun persistAssets(next: List<DirectorAsset>) {
             onDismiss = { materialLibraryOpen = false }
         )
     }
-    val busy = chatThinking || polishing || composing || generatingShotId != null
+    val busy = chatThinking || composing || generatingShotId != null
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val listState = rememberLazyListState()
     BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
         val compact = imeVisible || maxHeight < 580.dp || LocalDensity.current.fontScale > 1.3f
         Column(Modifier.fillMaxSize().padding(bottom = 8.dp)) {
-            DirectorHeader(compact = compact,
+            DirectorHeader(shotCount = shots.size,
                 onStoryboard = { if (!busy) { focusManager.clearFocus(); keyboard?.hide(); showStoryboard = true } },
                 onMaterials = { if (!busy) { focusManager.clearFocus(); keyboard?.hide(); materialLibraryOpen = true } })
             Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
-                if (!imeVisible) {
-                    Spacer(Modifier.height(2.dp))
-                    DirectorEngineSwitch(engine, enabled = !busy, onSelect = {
-                        focusManager.clearFocus(); keyboard?.hide(); onEngineChange(it)
-                    })
-                    if (!compact) {
-                        Text(engine.description, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        DirectorStepProgress(interview, enabled = !busy, onRevisit = ::revisitStage)
-                    }
-                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
-                        Text(when {
-                            chatDone -> "${engine.label} · 提示词已完成"
-                            interview.isReview -> "${engine.label} · 确认完整框架"
-                            else -> "${if (compact) engine.label + " · " else ""}第 ${interview.stageIndex + 1}/5 阶段 · ${interview.currentStage?.label.orEmpty()}"
-                        }, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary)
+                    Box {
+                        TextButton(onClick = { showControls = true }, enabled = !busy,
+                            contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Text(engine.label, fontWeight = FontWeight.SemiBold)
+                            PIcon(PopChevronDown, "选择导演工程", Modifier.size(16.dp))
+                        }
+                        DropdownMenu(expanded = showControls, onDismissRequest = { showControls = false }) {
+                            DirectorEngine.entries.forEach { item ->
+                                DropdownMenuItem(text = { Text(item.fullName) }, onClick = {
+                                    showControls = false; focusManager.clearFocus(); keyboard?.hide(); onEngineChange(item)
+                                })
+                            }
+                            if (interview.confirmedCount > 0) {
+                                DIRECTOR_STAGES.take(interview.confirmedCount).forEachIndexed { i, stage ->
+                                    DropdownMenuItem(text = { Text("修改 · ${stage.label}") }, onClick = {
+                                        showControls = false; revisitStage(i)
+                                    })
+                                }
+                            }
+                            DropdownMenuItem(text = { Text("重新开始") }, onClick = { showControls = false; restartDialog = true })
+                        }
                     }
+                    Text(when {
+                        chatDone -> "分镜已就绪"
+                        interview.isReview -> "确认完整框架"
+                        else -> "${interview.stageIndex + 1}/5 · ${interview.currentStage?.label.orEmpty()}"
+                    }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite })
                     if (interview.stageIndex > 0) TextButton(onClick = {
                         revisitStage((interview.stageIndex - 1).coerceAtLeast(0))
-                    }, enabled = !busy, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("上一步", fontSize = 12.sp) }
-                    TextButton(onClick = { restartDialog = true }, enabled = !busy,
-                        contentPadding = PaddingValues(horizontal = 6.dp)) { Text("重开", fontSize = 12.sp) }
+                    }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("上一步", fontSize = 12.sp) }
                 }
                 Surface(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
                     color = MaterialTheme.colorScheme.surface,
@@ -680,7 +624,7 @@ fun persistAssets(next: List<DirectorAsset>) {
                                         }
                                     }
                                     if (chatDone && !msg.mine && mi == chatMessages.lastIndex) {
-                                        TextButton(onClick = { copyText("chat-script", msg.text) }) {
+                                        TextButton(onClick = { copyText("chat-script", com.lo.imagine.data.DirectorStoryboard(videoAspect, shots).script()) }) {
                                             Text(if (copiedKey == "chat-script") "已复制" else "复制 ${engine.label} 提示词")
                                         }
                                     }
@@ -699,7 +643,7 @@ fun persistAssets(next: List<DirectorAsset>) {
                             Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
                                 Text(error ?: generationError.orEmpty(), style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = { if (interview.isReview) finishInterview() else confirmAndContinue() }, enabled = !busy) {
+                                TextButton(onClick = { if (interview.isReview) { if (shots.isNotEmpty()) replaceStoryboardDialog = true else finishInterview() } else confirmAndContinue() }, enabled = !busy) {
                                     Text("重试本轮")
                                 }
                             }
@@ -741,12 +685,12 @@ fun persistAssets(next: List<DirectorAsset>) {
                     }
                 }
                 if (!chatDone && !interview.isReview) {
-                    if (!compact && !busy) {
+                    if (!imeVisible && !busy) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            AssetPill(label = "人物", icon = PopPerson, tint = MaterialTheme.colorScheme.primary,
+                            AssetPill(label = "人物 ${selectedAssets.count { it.kindOrDefault() == KIND_CHARACTER }}", icon = PopPerson, tint = MaterialTheme.colorScheme.primary,
                                 selected = characterDesc.isNotBlank(), modifier = Modifier.weight(1f),
                                 onClick = { focusManager.clearFocus(); keyboard?.hide(); assetPickerKind = KIND_CHARACTER })
-                            AssetPill(label = "环境", icon = PopGallery, tint = MaterialTheme.colorScheme.primary,
+                            AssetPill(label = "环境 ${selectedAssets.count { it.kindOrDefault() == KIND_SCENE }}", icon = PopGallery, tint = MaterialTheme.colorScheme.primary,
                                 selected = envDesc.isNotBlank(), modifier = Modifier.weight(1f),
                                 onClick = { focusManager.clearFocus(); keyboard?.hide(); assetPickerKind = KIND_SCENE })
                             AssetPill(label = "${durationSec}s", icon = PopClock, tint = MaterialTheme.colorScheme.primary,
@@ -781,10 +725,10 @@ fun persistAssets(next: List<DirectorAsset>) {
                     }
                 } else if (interview.isReview && !chatDone) {
                     DirectorPrimaryAction(if (chatThinking) "正在生成…" else if (generationError != null) "重试生成 ${engine.label} 提示词" else "确认框架 · 生成 ${engine.label} 提示词",
-                        enabled = !busy && interview.canGenerate, onClick = ::finishInterview, modifier = Modifier.fillMaxWidth())
+                        enabled = !busy && interview.canGenerate, onClick = { if (shots.isNotEmpty()) replaceStoryboardDialog = true else finishInterview() }, modifier = Modifier.fillMaxWidth())
                 } else if (chatDone) {
-                    DirectorPrimaryAction(if (copiedKey == "polished") "已复制" else "复制 ${engine.label} 提示词",
-                        onClick = { copyText("polished", polished) }, modifier = Modifier.fillMaxWidth())
+                    DirectorPrimaryAction("查看 ${shots.size} 个分镜 · 制作视频",
+                        onClick = { showStoryboard = true }, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -797,243 +741,28 @@ fun persistAssets(next: List<DirectorAsset>) {
             dismissLabel = "继续编辑", onDismiss = { restartDialog = false })
     }
 
-    // ===== 分镜头弹窗（右上角入口） =====
+    if (replaceStoryboardDialog) {
+        PopAlertDialog(title = "更新分镜", onDismissRequest = { replaceStoryboardDialog = false },
+            text = { Text("生成成功后会替换当前 ${shots.size} 个分镜及首尾帧绑定；失败时保留原稿。") },
+            confirmLabel = "生成并替换", onConfirm = { replaceStoryboardDialog = false; finishInterview() },
+            dismissLabel = "保留原稿", onDismiss = { replaceStoryboardDialog = false })
+    }
     if (showStoryboard) {
-        Dialog(onDismissRequest = { showStoryboard = false }) {
-            Surface(
-                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.sheet),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.5.dp, celInk()),
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.86f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "分镜头",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TinyBadge(
-                            text = if (composing) "生成中…" else "一键脚本",
-                            onClick = { if (!composing) composeStoryboard() }
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        TinyBadge(text = "+分镜", accent = true, onClick = { addShot() })
-                        Spacer(Modifier.width(6.dp))
-                        TinyBadge(text = "完成", onClick = { showStoryboard = false })
-                    }
-                    if (shots.isEmpty()) {
-                        Text(
-                            "把脚本拆成一格格分镜：点左侧上图从相册选首帧、下图选尾帧（可选），写画面定秒数，定稿一键生成脚本——润色模型会读取这些参考图。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .85f)
-                        )
-                    }
-                    shots.forEachIndexed { index, shot ->
-                        Surface(
-                            shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(8.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Column {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .clickable {
-                                                pendingInjectTarget = shot.id to false
-                                                shotPicker.launch("image/*")
-                                            }
-                                    ) {
-                                        val path = shot.imagePath
-                                        if (path != null) {
-                                            AsyncImage(
-                                                model = File(path),
-                                                contentDescription = "首帧参考",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        } else {
-                                            PIcon(
-                                                PopFilm,
-                                                contentDescription = "点选首帧",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f),
-                                                modifier = Modifier
-                                                    .align(Alignment.Center)
-                                                    .size(22.dp)
-                                            )
-                                        }
-                                        if (generatingShotId == shot.id) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = .45f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                PopBusySpinner(
-                                                    modifier = Modifier.size(20.dp),
-                                                    tint = androidx.compose.ui.graphics.Color.White
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.chip))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .clickable {
-                                                pendingInjectTarget = shot.id to true
-                                                shotPicker.launch("image/*")
-                                            }
-                                    ) {
-                                        val ep = shot.endImagePath
-                                        if (ep != null) {
-                                            AsyncImage(
-                                                model = File(ep),
-                                                contentDescription = "尾帧参考",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        } else {
-                                            PIcon(
-                                                PopGallery,
-                                                contentDescription = "点选尾帧",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f),
-                                                modifier = Modifier
-                                                    .align(Alignment.Center)
-                                                    .size(19.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(Modifier.width(8.dp))
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            "分镜${index + 1}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        PopTextField(
-                                            value = shot.seconds,
-                                            onValueChange = { v ->
-                                                updateShot(shot.id) {
-                                                    it.copy(seconds = v.filter { c -> c.isDigit() }.take(3))
-                                                }
-                                            },
-                                            singleLine = true,
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                            modifier = Modifier.width(44.dp)
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(
-                                            "s",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .clip(CircleShape)
-                                                .clickable { replaceShots(shots.filterNot { it.id == shot.id }) }
-                                        ) {
-                                            PIcon(
-                                                PopTrash,
-                                                contentDescription = "删除分镜",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .65f),
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        TinyBadge(
-                                            text = if (generatingShotId == shot.id) "生成中…" else "生成首帧",
-                                            accent = generatingShotId != shot.id,
-                                            onClick = {
-                                                if (generatingShotId == null) generateFirstFrame(shot)
-                                            }
-                                        )
-                                    }
-                                    PopTextField(
-                                        value = shot.prompt,
-                                        onValueChange = { v -> updateShot(shot.id) { it.copy(prompt = v) } },
-                                        placeholder = "本镜画面：发生了什么（动作要具体）",
-                                        minLines = 1,
-                                        maxLines = 2,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TinyBadge(
-                            text = if (copiedKey == "draft") "已复制" else "生成提示词",
-                            accent = copiedKey == "draft",
-                            onClick = {
-                                draft = buildDraft()
-                                copyText("draft", buildDraft())
-                            }
-                        )
-                        TinyBadge(
-                            text = when {
-                                polishing -> "润色中…"
-                                polished.isNotBlank() -> "重新润色"
-                                else -> "润色"
-                            },
-                            onClick = { if (!polishing && draft.isNotBlank()) polish() }
-                        )
-                        if (polishing) PopBusySpinner(modifier = Modifier.size(17.dp))
-                    }
-                    error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    if (draft.isNotBlank()) {
-                        Text(
-                            draft,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    if (polished.isNotBlank()) {
-                        Text(
-                            polishedTitle,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            polished,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        TinyBadge(
-                            text = if (copiedKey == "polished") "已复制" else "复制脚本",
-                            accent = copiedKey == "polished",
-                            onClick = { copyText("polished", polished) }
-                        )
-                    }
-                }
-            }
-        }
+        DirectorStoryboardDialog(shots, videoAspect, selectedAssets, busy, generatingShotId, error,
+            onDismiss = { showStoryboard = false }, onAdd = ::addShot,
+            onUpdate = { next -> updateShot(next.id) { next } },
+            onDelete = { id -> replaceShots(shots.filterNot { it.id == id }) },
+            onPickFrame = { id, end -> pendingInjectTarget = id to end; shotPicker.launch("image/*") },
+            onGenerateFrame = ::generateFirstFrame,
+            onCompose = ::composeStoryboard,
+            onAspect = { aspectDialog = true },
+            onCharacters = { assetPickerKind = KIND_CHARACTER }, onScene = { assetPickerKind = KIND_SCENE },
+            onCopy = { copyText("storyboard", com.lo.imagine.data.DirectorStoryboard("$videoAspect", shots).script()) },
+            onProduce = { showProduction = true })
+    }
+    if (showProduction) {
+        DirectorProductionDialog(engine, shots, videoAspect, selectedAssetIds, assets, settingsRepository,
+            onDismiss = { showProduction = false })
     }
 
     // ===== 时长选择弹窗 =====
@@ -1101,11 +830,8 @@ fun persistAssets(next: List<DirectorAsset>) {
                             ) {
                                 // 画幅图示：小框按真实比例预览（9:16 高框 / 16:9 宽框 / 1:1 方框）
                                 val frameH = 22.dp
-                                val frameW = when (a) {
-                                    "9:16" -> frameH * 9f / 16f
-                                    "1:1" -> frameH
-                                    else -> frameH * 16f / 9f
-                                }.coerceAtMost(40.dp)
+                                val ratio = a.split(":").let { it[0].toFloat() / it[1].toFloat() }
+                                val frameW = (frameH * ratio).coerceAtMost(40.dp)
                                 Box(
                                     modifier = Modifier
                                         .width(frameW)
@@ -1163,6 +889,13 @@ fun persistAssets(next: List<DirectorAsset>) {
             icon = if (kind == KIND_SCENE) PopGallery else PopPerson,
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (selectedAssetIds.any { id -> assets.none { it.id == id } }) {
+                        Text("有已选素材被删除，请清除失效绑定后重新选择。", color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = {
+                            selectedAssetIds = selectedAssetIds.filter { id -> assets.any { it.id == id } }
+                            invalidateFramework(1)
+                        }) { Text("清除失效绑定") }
+                    }
                     if (kindAssets.isEmpty()) {
                         Text(
                             "还没有${if (kind == KIND_SCENE) "环境" else "人物"}素材，点击下方添加。",
@@ -1309,6 +1042,7 @@ LazyColumn(
             confirmContainer = MaterialTheme.colorScheme.error,
             confirmContentColor = MaterialTheme.colorScheme.onError,
             onConfirm = {
+                if (target.id in selectedAssetIds) toggleAsset(target)
                 runCatching { File(target.imagePath).delete() }
                 persistAssets(assets.filterNot { it.id == target.id })
                 assetToDelete = null

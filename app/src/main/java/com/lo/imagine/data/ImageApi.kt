@@ -28,6 +28,13 @@ interface ImageApi {
         @Part mask: MultipartBody.Part?
     ): ImageResponse
 
+    @Multipart
+    @POST("images/edits")
+    suspend fun directorEdit(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part images: List<MultipartBody.Part>
+    ): ImageResponse
+
     /** LLM 提示词润色（Chat Completions） */
     @POST("chat/completions")
     suspend fun chat(@Body body: ChatCompletionRequest): ChatCompletionResponse

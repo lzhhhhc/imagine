@@ -165,7 +165,7 @@ fun NaiWorkspaceScreen(
     settings: AppSettings,
     settingsRepository: SettingsRepository,
     imageRepository: ImageRepository,
-    onHome: () -> Unit,
+    onSelectMode: (String) -> Unit,
     onPreview: () -> Unit
 ) {
     val context = LocalContext.current
@@ -356,9 +356,7 @@ fun NaiWorkspaceScreen(
             subtitle = "独立生图工作台",
             // 左上角标题即模式切换：点「标准」回普通页
             titleOverride = {
-                StudioModeSwitch(selected = StudioMode.NAI, onSelect = { mode ->
-                    if (mode == StudioMode.NORMAL) onHome()
-                })
+                StudioModeSwitch(selected = StudioMode.NAI, onSelect = onSelectMode)
             },
             // 右上角：与首页同款角标，切的是「NAI 通道当前预设」——
             // 同一份预设列表，两边各记各的选择，互不影响。
@@ -975,6 +973,7 @@ fun NaiWorkspaceScreen(
                             PreviewStore.bitmap = shot.bitmap
                             PreviewStore.prompt = shot.prompt
                             PreviewStore.model = shot.model
+                            PreviewStore.workflowDetails = null
                             PreviewStore.sizeNote = shot.sizeNote
                             PreviewStore.historyList = null
                             onPreview()

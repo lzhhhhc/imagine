@@ -177,7 +177,7 @@ fun StudioScreen(
     settingsRepository: SettingsRepository,
     onPreview: () -> Unit,
     /** 进入 NAI 页：直接导航，不走 AppBus（全局可变状态会因「值没变化」而不触发导航） */
-    onOpenNai: () -> Unit
+    onSelectMode: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -631,6 +631,7 @@ fun StudioScreen(
                 PreviewStore.bitmap = bitmap
                 PreviewStore.prompt = StudioState.resultPrompt
                 PreviewStore.model = settings.genModel
+                PreviewStore.workflowDetails = null
                 PreviewStore.sizeNote = data.upstreamSize
                 PreviewStore.historyList = null // 创作/修图入口不支持左右切换
                 onPreview()
@@ -681,9 +682,7 @@ fun StudioScreen(
             subtitle = null,
             // 左上角标题即模式切换：点「NAI」进工作台
             titleOverride = {
-                StudioModeSwitch(selected = StudioMode.NORMAL, onSelect = { mode ->
-                    if (mode == StudioMode.NAI) onOpenNai()
-                })
+                StudioModeSwitch(selected = StudioMode.NORMAL, onSelect = onSelectMode)
             },
             action = {
                 val pickedName = pickedPresetKey?.substringBefore('|')

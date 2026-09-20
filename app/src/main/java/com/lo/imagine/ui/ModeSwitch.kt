@@ -2,6 +2,8 @@ package com.lo.imagine.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -22,6 +24,10 @@ import androidx.compose.ui.unit.sp
 object StudioMode {
     const val NORMAL = "studio"
     const val NAI = "nai"
+    const val COMFY = "comfy"
+    val options = listOf("标准" to NORMAL, "NAI" to NAI, "ComfyUI" to COMFY)
+    fun isStudio(route: String?): Boolean = options.any { it.second == route }
+    fun dockRoute(route: String?): String? = if (isStudio(route)) NORMAL else route
 }
 
 @Composable
@@ -29,13 +35,13 @@ fun StudioModeSwitch(selected: String, onSelect: (String) -> Unit, modifier: Mod
     val c = MaterialTheme.colorScheme
     Surface(shape = CircleShape, color = c.surface.copy(alpha = .82f),
         border = BorderStroke(.7.dp, c.outlineVariant), modifier = modifier) {
-        Row(Modifier.padding(2.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            listOf("标准" to StudioMode.NORMAL, "NAI" to StudioMode.NAI).forEach { (label, id) ->
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(2.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            StudioMode.options.forEach { (label, id) ->
                 val active = selected == id
                 Row(Modifier.widthIn(min = 60.dp).heightIn(min = 48.dp).clip(CircleShape)
                     .background(if (active) c.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
                     .selectable(selected = active, role = Role.Tab, onClick = { onSelect(id) })
-                    .padding(horizontal = 11.dp, vertical = 10.dp),
+                    .padding(horizontal = 9.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                     if (id == StudioMode.NAI) {
                         PIcon(RefIcons.Nai, null, Modifier.size(16.dp), tint = c.primary)

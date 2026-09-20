@@ -33,6 +33,13 @@ class DockSwipeTargetTest {
         assertNull(dockSwipeTarget("nai", 120f))
     }
 
+    @Test fun `comfy is the first dock item with studio and nai`() {
+        assertEquals("edit", dockSwipeTarget("comfy", -120f))
+        assertNull(dockSwipeTarget("comfy", 120f))
+        assertEquals("studio", StudioMode.dockRoute("comfy"))
+        assertEquals(3, StudioMode.options.size)
+    }
+
     /** 预览页等不在底栏序列里的路由不响应滑动；零位移也不是滑动。 */
     @Test
     fun `unknown route and zero delta do nothing`() {

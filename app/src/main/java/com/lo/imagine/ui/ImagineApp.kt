@@ -121,7 +121,7 @@ private data class BottomItem(
 )
 
 private val bottomItems = listOf(
-    BottomItem("studio", "标准", com.lo.imagine.R.drawable.ic_ark_spark),
+    BottomItem("studio", "创作", com.lo.imagine.R.drawable.ic_ark_spark),
     BottomItem("edit", "修图", com.lo.imagine.R.drawable.ic_ark_crop),
     BottomItem("director", "导演", com.lo.imagine.R.drawable.ic_ark_clapper),
     BottomItem("works", "作品", com.lo.imagine.R.drawable.ic_ark_folder),
@@ -134,7 +134,7 @@ private val bottomItems = listOf(
  */
 internal fun dockSwipeTarget(currentRoute: String?, delta: Float): String? {
     if (delta == 0f) return null
-    val shown = if (currentRoute == "nai") "studio" else currentRoute
+    val shown = StudioMode.dockRoute(currentRoute)
     val index = bottomItems.indexOfFirst { it.route == shown }
     if (index < 0) return null
     return bottomItems.getOrNull(if (delta < 0) index + 1 else index - 1)?.route
@@ -172,9 +172,39 @@ fun ImagineApp(
     LaunchedEffect(settingsRepository, "legacyArtistStringCleanup") {
         withTimeoutOrNull(5_000) { runCatching { settingsRepository.clearLegacyArtistString() } }
     }
+    var modeLoadError by remember { mutableStateOf<String?>(null) }
+    var modeAttempt by remember { mutableStateOf(0) }
+    LaunchedEffect(settingsRepository, modeAttempt) {
+        if (!StudioModeState.ready) {
+            try {
+                val saved = kotlinx.coroutines.withTimeout(5_000) { settingsRepository.studioModeFlow().first() }
+                require(StudioMode.isStudio(saved)) { "保存的模式无法识别" }
+                StudioModeState.current = saved
+                StudioModeState.ready = true
+            } catch (e: Exception) { modeLoadError = e.message ?: "模式读取失败" }
+        }
+    }
+    if (!StudioModeState.ready) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (modeLoadError == null) PopBusySpinner() else Column {
+                Text("创作模式读取失败：$modeLoadError")
+                androidx.compose.material3.TextButton(onClick = { modeLoadError = null; modeAttempt++ }) { Text("重试") }
+            }
+        }
+        return
+    }
+    val initialStudioMode = remember { StudioModeState.current }
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(route) {
+        if (StudioMode.isStudio(route)) {
+            StudioModeState.current = route!!
+            try { settingsRepository.saveStudioMode(route) }
+            catch (e: Exception) { android.widget.Toast.makeText(appContext, "模式保存失败", android.widget.Toast.LENGTH_SHORT).show() }
+        }
+    }
     val view = LocalView.current
     SideEffect {
         val activity = view.context as? android.app.Activity
@@ -199,9 +229,18 @@ fun ImagineApp(
     }
 
     fun navigateTo(destination: String) {
-        // NAI 模式记忆：切走再回到「创作」时回到 NAI 页，不被拽回普通模式
-        val target = if (destination == "studio" && NaiModeState.active) "nai" else destination
+        val target = if (destination == StudioMode.NORMAL) StudioModeState.current else destination
         navController.navigate(target) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    fun selectMode(mode: String) {
+        if (!StudioMode.isStudio(mode) || route == mode) return
+        StudioModeState.current = mode
+        navController.navigate(mode) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
             restoreState = true
@@ -214,14 +253,14 @@ fun ImagineApp(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (route != "preview" && !directorKeyboardOpen) {
-                AppDock(currentRoute = if (route == "nai") "studio" else route, onNavigate = ::navigateTo)
+                AppDock(currentRoute = StudioMode.dockRoute(route), onNavigate = ::navigateTo)
             }
         }
     ) { padding ->
         val dockRoute by rememberUpdatedState(if (route == "preview") null else route)
         val backdropRoute = when (route) {
             "preview" -> null
-            "nai" -> "studio"
+            "nai", "comfy" -> "studio"
             else -> route
         }
         Box(
@@ -272,7 +311,7 @@ fun ImagineApp(
             }
         NavHost(
             navController = navController,
-            startDestination = "studio",
+            startDestination = initialStudioMode,
             modifier = Modifier.padding(if (route == "preview") PaddingValues(0.dp) else padding)
                 .then(if (route == "director") Modifier.consumeWindowInsets(padding) else Modifier),
             // 官网转场语言：内容缩放回落（scale 1.04→1）+ 淡入，exit 快淡出；总时长对齐官网 .6s 节奏
@@ -282,29 +321,16 @@ fun ImagineApp(
             popExitTransition = { fadeOut(tween(220, easing = FastOutSlowInEasing)) }
         ) {
             composable("nai") {
-                // 进入 NAI 页即记住「当前模式」
-                LaunchedEffect(Unit) { NaiModeState.active = true }
                 NaiWorkspaceScreen(settings, settingsRepository, imageRepository,
-                    onHome = {
-                        // 手动回普通模式：先清标记，否则 navigateTo 又会被拽回 NAI
-                        NaiModeState.active = false
-                        navigateTo("studio")
-                    },
-                    onPreview = { navController.navigate("preview") })
+                    onSelectMode = ::selectMode, onPreview = { navController.navigate("preview") })
             }
             composable("studio") {
-                // 真正落到普通创作页时才清掉 NAI 模式记忆
-                LaunchedEffect(Unit) { NaiModeState.active = false }
-                StudioScreen(
-                    settings = settings,
-                    repository = imageRepository,
-                    settingsRepository = settingsRepository,
-                    onPreview = { navController.navigate("preview") },
-                    onOpenNai = {
-                        NaiModeState.active = true
-                        navigateTo("nai")
-                    }
-                )
+                StudioScreen(settings = settings, repository = imageRepository, settingsRepository = settingsRepository,
+                    onPreview = { navController.navigate("preview") }, onSelectMode = ::selectMode)
+            }
+            composable("comfy") {
+                com.lo.imagine.ui.studio.comfy.ComfyWorkspaceScreen(settings,
+                    onSelectMode = ::selectMode, onPreview = { navController.navigate("preview") })
             }
              composable("edit") {
                 EditScreen(

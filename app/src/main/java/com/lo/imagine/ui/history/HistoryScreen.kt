@@ -108,6 +108,7 @@ fun HistoryScreen(onPreview: () -> Unit) {
             PreviewStore.bitmap = bitmap
             PreviewStore.prompt = entry.meta.prompt
             PreviewStore.model = entry.meta.model
+            PreviewStore.workflowDetails = entry.meta.workflowDetails
             PreviewStore.elapsedText = ImageUtils.formatElapsed(entry.meta.elapsedSec)
             PreviewStore.sizeNote = null // 历史条目未记录上游原始像素
             PreviewStore.historyList = entries

@@ -23,6 +23,7 @@ object PreviewStore {
     var bitmap by mutableStateOf<Bitmap?>(null)
     var prompt by mutableStateOf("")
     var model by mutableStateOf("")
+    var workflowDetails by mutableStateOf<String?>(null)
     /** 生成耗时文本（如「用时 32s」），预览页在像素角标下方展示 */
     var elapsedText by mutableStateOf("")
     /** 上游模型实际输出的像素（如「1536x1024」）；与最终像素不同时预览页会显示 */
@@ -183,9 +184,9 @@ object AppBus {
 }
 
 /**
- * NAI 模式记忆：在 NAI 页切到别的底部 tab 再回到「创作」，应回到 NAI 页而不是普通模式。
- * 只在进程内存里记，杀掉进程后回到普通模式（配置本身仍然是持久化的）。
+ * 创作模式记忆：初次从 SettingsRepository 恢复，导航变化写入同一个键。
  */
-object NaiModeState {
-    var active by mutableStateOf(false)
+object StudioModeState {
+    var current by mutableStateOf(StudioMode.NORMAL)
+    var ready by mutableStateOf(false)
 }

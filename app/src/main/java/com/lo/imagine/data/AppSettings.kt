@@ -110,6 +110,11 @@ data class AppSettings(
 
 class SettingsRepository internal constructor(private val store: DataStore<Preferences>) {
     constructor(context: Context) : this(context.settingsDataStore)
+    fun studioModeFlow(): Flow<String> = store.data.map { it[stringPreferencesKey("studio_mode")] ?: "studio" }
+    suspend fun saveStudioMode(route: String) {
+        require(route in setOf("studio", "nai", "comfy"))
+        store.edit { it[stringPreferencesKey("studio_mode")] = route }
+    }
     fun naiWorkspaceFlow(): Flow<NaiWorkspaceConfig> = store.data.map { p ->
         p[stringPreferencesKey("nai_workspace_json")]?.let { com.google.gson.Gson().fromJson(it, NaiWorkspaceConfig::class.java) } ?: NaiWorkspaceConfig()
     }

@@ -158,7 +158,7 @@ private fun ArkScreenHeader(
 ) {
     val scheme = MaterialTheme.colorScheme
     val (pageEn, pageIndex) = when (title) {
-        "标准", "NAI" -> "STUDIO" to 1
+        "标准", "NAI", "ComfyUI" -> "STUDIO" to 1
         "修图" -> "RETOUCH" to 2
         "导演台" -> "DIRECTOR" to 3
         "作品", "作品库", "历史" -> "GALLERY" to 4
@@ -170,7 +170,8 @@ private fun ArkScreenHeader(
         // Reference coordinates scale with phone width; OS status-bar clearance is separate.
         val ratio = if (pageIndex == 3) .59f else .43f
         val textScale = LocalDensity.current.fontScale.coerceIn(1f, 1.7f)
-        val heroHeight = (maxWidth * ratio).coerceIn(156.dp, 230.dp) + (30.dp * (textScale - 1f))
+        val stackedModeActions = titleOverride != null && (maxWidth < 430.dp || LocalDensity.current.fontScale > 1.1f)
+        val heroHeight = (maxWidth * ratio).coerceIn(156.dp, 230.dp) + (30.dp * (textScale - 1f)) + if (stackedModeActions) 56.dp else 0.dp
         val safeTop = androidx.compose.foundation.layout.WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Box(Modifier.fillMaxWidth().height(heroHeight)) {
             ArkHeroArtwork(route, Modifier.fillMaxSize())
@@ -200,10 +201,17 @@ private fun ArkScreenHeader(
                     }
                 }
                 if (titleOverride != null) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        titleOverride()
-                        Spacer(Modifier.weight(1f))
-                        action?.invoke()
+                    if (stackedModeActions) {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            titleOverride()
+                            Box(Modifier.align(Alignment.End)) { action?.invoke() }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            titleOverride()
+                            Spacer(Modifier.weight(1f))
+                            action?.invoke()
+                        }
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {

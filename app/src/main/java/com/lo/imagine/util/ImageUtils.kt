@@ -24,7 +24,8 @@ data class HistoryMeta(
     val kind: String = "gen",
     val createdAt: Long = 0L,
     /** 生成耗时（秒），预览页角标展示「用时 Xs」 */
-    val elapsedSec: Long = 0L
+    val elapsedSec: Long = 0L,
+    val workflowDetails: String? = null
 )
 
 data class HistoryEntry(
@@ -285,7 +286,7 @@ object ImageUtils {
 
     fun listHistory(context: Context): List<HistoryEntry> {
         val dir = File(context.filesDir, "history")
-        val files = dir.listFiles { f -> f.isFile && f.extension == "png" } ?: return emptyList()
+        val files = dir.listFiles { f -> f.isFile && f.extension.lowercase() in setOf("png", "jpg", "jpeg", "webp") } ?: return emptyList()
         return files.sortedByDescending { it.lastModified() }.map { f ->
             val metaFile = File(dir, f.nameWithoutExtension + ".json")
             val meta = if (metaFile.exists()) {

@@ -162,19 +162,25 @@ object GenerationTasks {
         context: Context,
         doneTitle: String,
         failTitle: String = "$doneTitle（未完成）",
+        cancelTitle: String? = null,
         work: suspend () -> TaskOutcome
-    ) {
+    ): kotlinx.coroutines.Job {
         val app = context.applicationContext
         ensureNotifChannels(app)
         GenerationService.ensureAlive(app)
 
         synchronized(this) { activeCount += 1 }
 
-        GenerationService.scope.launch {
+        return GenerationService.scope.launch {
             var outcome = TaskOutcome("任务已中止", success = false)
             var crashed: Exception? = null
+            var cancelled = false
             try {
                 outcome = work()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                cancelled = true
+                outcome = TaskOutcome("已停止等待，服务器任务可能仍在运行", success = false)
+                throw e
             } catch (e: Exception) {
                 crashed = e
                 Log.e("GenerationTasks", "task crashed", e)
@@ -186,7 +192,7 @@ object GenerationTasks {
                 }
                 // 成败由 work 显式声明；崩溃或未明确声明成功的一律按失败处理
                 val failed = crashed != null || !outcome.success
-                notifyResult(app, if (failed) failTitle else doneTitle, outcome.summary, DONE_NOTIF_ID, failed)
+                notifyResult(app, if (cancelled && cancelTitle != null) cancelTitle else if (failed) failTitle else doneTitle, outcome.summary, DONE_NOTIF_ID, failed && !cancelled)
                 if (remains <= 0) {
                     GenerationService.shutdownIfIdle(app)
                 }

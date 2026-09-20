@@ -210,6 +210,7 @@ fun PreviewScreen(
             PreviewStore.bitmap = nextBitmap
             PreviewStore.prompt = entry.meta.prompt
             PreviewStore.model = entry.meta.model
+            PreviewStore.workflowDetails = entry.meta.workflowDetails
             PreviewStore.elapsedText = ImageUtils.formatElapsed(entry.meta.elapsedSec)
             PreviewStore.sizeNote = null // 历史条目未记录上游原始像素
             saved = false
@@ -277,6 +278,7 @@ fun PreviewScreen(
                         }
                         PreviewStore.prompt = entry.meta.prompt
                         PreviewStore.model = entry.meta.model
+                        PreviewStore.workflowDetails = entry.meta.workflowDetails
                         PreviewStore.elapsedText = ImageUtils.formatElapsed(entry.meta.elapsedSec)
                         PreviewStore.sizeNote = null // 历史条目未记录上游原始像素
                         // 供保存/继续修图使用（通常已被页缓存命中，不触发磁盘解码）
@@ -880,7 +882,7 @@ private fun PromptDrawer(
 
             // 正文随面板高度连续伸缩：折叠时露出两行，拖开时逐行增加。
             Text(
-                PreviewStore.prompt,
+                listOfNotNull(PreviewStore.prompt.takeIf { it.isNotBlank() }, PreviewStore.workflowDetails).joinToString("\n\n"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = .9f),
                 modifier = Modifier

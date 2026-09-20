@@ -408,6 +408,7 @@ fun EditScreen(
                 PreviewStore.bitmap = bitmap
                 PreviewStore.prompt = EditState.prompt
                 PreviewStore.model = settings.editModel
+                PreviewStore.workflowDetails = null
                 PreviewStore.historyList = null // 创作/修图入口不支持左右切换
                 onPreview()
             } else {

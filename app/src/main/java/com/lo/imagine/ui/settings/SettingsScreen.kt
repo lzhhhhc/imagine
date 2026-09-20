@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -123,6 +124,10 @@ fun SettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val comfyRuntime = remember { com.lo.imagine.data.comfy.ComfyRuntime.get(context) }
+    val comfyState by comfyRuntime.repository.state.collectAsStateWithLifecycle()
+    var comfyOpen by remember { mutableStateOf(false) }
+    if (comfyOpen) com.lo.imagine.ui.studio.comfy.ComfyConnectionDialog { comfyOpen = false }
     // 预设全部由用户自己维护：没有内置平台列表，选择只能从「我保存的预设」里来。
     var baseUrl by rememberSaveable(current.baseUrl) { mutableStateOf(current.baseUrl) }
     var apiKey by rememberSaveable(current.apiKey) { mutableStateOf(current.apiKey) }
@@ -780,6 +785,14 @@ PresetDropdown(
             )
         },
         channels = {
+            SettingsConnectionRow(
+                icon = PopPlug, title = "ComfyUI",
+                subtitle = comfyState.connection.baseUrl.ifBlank { "连接自己的工作流服务器" },
+                status = if (!comfyState.ready) "未就绪" else if (comfyState.connection.baseUrl.isBlank()) "待配置" else "已配置",
+                ready = comfyState.ready && comfyState.connection.baseUrl.isNotBlank(),
+                onClick = { comfyOpen = true }
+            )
+            Spacer(Modifier.height(8.dp))
             SettingsConnectionRow(
                 icon = Icons.Outlined.Image, title = "绘图 API",
                 subtitle = "$apiLabel · ${model.ifBlank { "未选模型" }}",

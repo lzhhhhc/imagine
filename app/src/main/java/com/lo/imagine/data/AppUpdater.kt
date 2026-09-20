@@ -229,9 +229,17 @@ class AppUpdater(private val context: Context) {
             }
         }
 
-    /** Android 8.0+ 需要用户授予「安装未知应用」权限，否则安装器会直接拒绝。 */
-    fun canInstallPackages(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
+    /**
+     * Android 8.0+ 需要用户授予「安装未知应用」权限，否则安装器会直接拒绝。
+     *
+     * 该 API 要求清单中声明 REQUEST_INSTALL_PACKAGES；定制系统上还可能因权限策略
+     * 直接抛异常——这里一律按「未授权」处理，交由调用方引导用户去设置页，
+     * 不能让一次权限查询把应用打崩。
+     */
+    fun canInstallPackages(): Boolean = runCatching {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            context.packageManager.canRequestPackageInstalls()
+    }.getOrDefault(false)
 
     /** 已下载的包再装一次时避免重复下载。 */
     fun cachedApk(info: UpdateInfo): File? {

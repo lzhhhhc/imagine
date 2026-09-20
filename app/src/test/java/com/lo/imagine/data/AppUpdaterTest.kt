@@ -90,5 +90,40 @@ class AppUpdaterTest {
         assertTrue("必须把 cache/apk 暴露给 FileProvider", paths.contains("path=\"apk/\""))
         val manifest = File("src/main/AndroidManifest.xml").readText()
         assertTrue("安装器需要 INTERNET 拉取 release", manifest.contains("android.permission.INTERNET"))
+        // 回归锁：canRequestPackageInstalls() 缺少该权限会直接抛 SecurityException 把应用打崩
+        assertTrue(
+            "必须声明 REQUEST_INSTALL_PACKAGES，否则权限查询会崩",
+            manifest.contains("android.permission.REQUEST_INSTALL_PACKAGES")
+        )
+    }
+
+    @Test fun `permission probe never crashes the app`() {
+        val src = File("src/main/java/com/lo/imagine/data/AppUpdater.kt").readText()
+        assertTrue(
+            "canInstallPackages 必须用 runCatching 兜住 SecurityException",
+            src.contains("fun canInstallPackages(): Boolean = runCatching {")
+        )
+        assertTrue(
+            "兜底值必须是「未授权」而不是「已授权」",
+            src.contains(".getOrDefault(false)")
+        )
+    }
+
+    @Test fun `install flow degrades to a permission prompt instead of crashing`() {
+        val card = File("src/main/java/com/lo/imagine/ui/settings/UpdateCard.kt").readText()
+        assertTrue("必须有「待授权」状态", card.contains("NEED_PERMISSION"))
+        assertTrue(
+            "未授权时应引导用户去设置页",
+            card.contains("Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES")
+        )
+        assertTrue(
+            "跳转设置页失败要有兜底，不能抛异常",
+            card.contains("Settings.ACTION_APPLICATION_DETAILS_SETTINGS")
+        )
+        assertTrue("应保留已下载的安装包以便重试", card.contains("var apk by remember"))
+        assertTrue(
+            "重试安装不得重新下载",
+            card.contains("UpdatePhase.FAILED -> if (apk != null) tryInstall")
+        )
     }
 }

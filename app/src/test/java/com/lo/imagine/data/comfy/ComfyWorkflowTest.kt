@@ -122,6 +122,39 @@ class ComfyWorkflowTest {
             ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = listOf(loader.copy(value = "")), outputNodes = listOf("1")))
         }
     }
+    @Test fun `prompt behind conditioning nodes is bound once and a side prompt stays unbound`() {
+        val graph = ComfyWorkflowEngine.parse("""{
+          "1":{"class_type":"CLIPTextEncode","inputs":{"text":"edit the shirt","clip":["2",0]}},
+          "2":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"m.safetensors"}},
+          "3":{"class_type":"ReferenceLatent","inputs":{"conditioning":["1",0],"latent":["4",0]}},
+          "4":{"class_type":"VAEEncode","inputs":{"pixels":["6",0],"vae":["2",2]}},
+          "5":{"class_type":"ConditioningZeroOut","inputs":{"conditioning":["1",0]}},
+          "6":{"class_type":"LoadImage","inputs":{"image":"ref.png"}},
+          "7":{"class_type":"ReferenceLatent","inputs":{"conditioning":["5",0],"latent":["4",0]}},
+          "8":{"class_type":"KSampler","inputs":{"model":["2",0],"positive":["3",0],"negative":["7",0],"latent_image":["4",0],"seed":1,"steps":6,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":1}},
+          "9":{"class_type":"CLIPTextEncode","inputs":{"text":"clothes","clip":["2",1]}},
+          "10":{"class_type":"SaveImage","inputs":{"images":["6",0],"filename_prefix":"x"}}
+        }""")
+        val suggested = ComfyWorkflowEngine.suggest(graph)
+        val prompt = suggested.single { it.kind == ParameterKind.PROMPT }
+        assertEquals(InputTarget("1", "text"), prompt.targets.single())
+        assertEquals("edit the shirt", prompt.value)
+        assertTrue(suggested.none { it.kind == ParameterKind.NEGATIVE || it.targets.any { target -> target.nodeId == "9" } })
+        assertEquals(InputTarget("6", "image"), suggested.single { it.kind == ParameterKind.IMAGE }.targets.single())
+        assertTrue(suggested.none { it.kind in setOf(ParameterKind.STEPS, ParameterKind.CFG) })
+    }
+    @Test fun `two texts on one conditioning chain are not guessed`() {
+        val graph = ComfyWorkflowEngine.parse("""{
+          "1":{"class_type":"CLIPTextEncode","inputs":{"text":"a","clip":["4",0]}},
+          "2":{"class_type":"CLIPTextEncode","inputs":{"text":"b","clip":["4",0]}},
+          "3":{"class_type":"ConditioningCombine","inputs":{"conditioning_1":["1",0],"conditioning_2":["2",0]}},
+          "4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"m.safetensors"}},
+          "5":{"class_type":"KSampler","inputs":{"model":["4",0],"positive":["3",0],"negative":["2",0],"latent_image":["4",0],"seed":1,"steps":1,"cfg":1,"sampler_name":"euler","scheduler":"simple","denoise":1}}
+        }""")
+        val suggested = ComfyWorkflowEngine.suggest(graph)
+        assertTrue(suggested.none { it.kind == ParameterKind.PROMPT })
+        assertEquals(InputTarget("2", "text"), suggested.single { it.kind == ParameterKind.NEGATIVE }.targets.single())
+    }
     @Test fun `a single load image is suggested and several are left for the user`() {
         val one = sampleGraph().apply { add("8", JsonParser.parseString("""{"class_type":"LoadImage","inputs":{"image":"ref.png"}}""")) }
         val suggested = ComfyWorkflowEngine.suggest(one)

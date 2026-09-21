@@ -573,3 +573,7 @@ GitHub 发布受阻：此前聊天中出现过的 GitHub 凭据已视为泄露�
 - 编辑器把参考图和提示词放在前面，采样参数收进「采样参数」折叠；绑到文本编码的自定义参数可一键「改为主提示词」。
 
 已保存的工作流绑定原样保留，不自动增删。
+
+### 14.9 导入时检索参考图和提示词
+
+正面提示词经常不直接连在 KSampler 上，而是隔着 ReferenceLatent、ConditioningZeroOut 这类条件节点。导入时顺着 `positive` / `negative` / 名称含 `conditioning` 的连线查找，链上恰好一个 `CLIPTextEncode.text` 才绑定；正面和负面落到同一句时只绑一次。图像、遮罩、Latent 分支不跟进去，因此检测用的旁路提示词不会被当成画面提示词。一条链上有两句文本时不猜测。唯一的 `LoadImage.image` 仍在导入时绑定。

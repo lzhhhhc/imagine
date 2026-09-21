@@ -69,7 +69,42 @@ object ComfyWorkflowEngine {
         return array.map { it.asString }
     }
 
-    /** Suggestions only: no traversal through unknown conditioning transforms, no first-node guessing. */
+    private fun linkNodeId(value: JsonElement?): String? {
+        if (value?.isJsonArray != true) return null
+        val link = value.asJsonArray
+        if (link.size() != 2) return null
+        val id = link[0]
+        return id.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+    }
+
+    /** The one CLIPTextEncode reached by conditioning links, or null when there isn't exactly one.
+     *  Image, mask and latent branches are not followed, so a side prompt such as a detector stays unbound. */
+    private fun conditioningText(graph: JsonObject, start: JsonElement?): String? {
+        val found = linkedSetOf<String>()
+        val pending = ArrayDeque<String>()
+        val seen = mutableSetOf<String>()
+        linkNodeId(start)?.let(pending::add)
+        var steps = 0
+        while (pending.isNotEmpty()) {
+            if (++steps > 64) return null
+            val id = pending.removeFirst()
+            if (!seen.add(id)) continue
+            val node = graph.get(id)?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+            val type = node.get("class_type")?.takeIf { it.isJsonPrimitive }?.asString ?: return null
+            val inputs = node.get("inputs")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+            if (type == "CLIPTextEncode") {
+                if (inputs.get("text")?.isJsonPrimitive == true) found += id
+                continue
+            }
+            inputs.entrySet().forEach { (key, value) ->
+                val name = key.lowercase()
+                if (name == "positive" || name == "negative" || "conditioning" in name) linkNodeId(value)?.let(pending::add)
+            }
+        }
+        return found.singleOrNull()
+    }
+
+    /** Suggestions only. Prompt and reference image are retrieved when the graph has exactly one match; nothing else is guessed. */
     fun suggest(graph: JsonObject): List<WorkflowParameter> {
         val params = mutableListOf<WorkflowParameter>()
         val samplers = graph.entrySet().filter { it.value.asJsonObject.get("class_type").asString in setOf("KSampler", "KSamplerAdvanced") }
@@ -83,11 +118,7 @@ object ComfyWorkflowEngine {
             val inputs = node.asJsonObject.getAsJsonObject("inputs")
             add(ParameterKind.SEED, id, if (inputs.has("seed")) "seed" else "noise_seed")
             for ((linkName, kind) in listOf("positive" to ParameterKind.PROMPT, "negative" to ParameterKind.NEGATIVE)) {
-                val link = inputs.get(linkName)
-                if (link?.isJsonArray == true && link.asJsonArray.size() == 2) {
-                    val target = link.asJsonArray[0].asString
-                    if (graph.getAsJsonObject(target)?.get("class_type")?.asString == "CLIPTextEncode") add(kind, target, "text")
-                }
+                conditioningText(graph, inputs.get(linkName))?.let { add(kind, it, "text") }
             }
         }
         // Steps, CFG, size and batch stay at the workflow's own values. The injection that actually

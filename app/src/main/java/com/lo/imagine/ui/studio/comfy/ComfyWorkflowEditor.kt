@@ -85,7 +85,7 @@ internal fun ComfyWorkflows(runtime: ComfyRuntime, onDismiss: () -> Unit) {
         return
     }
     ComfyDialog("工作流", onDismiss) {
-        Text("从 ComfyUI 的 File → Export Workflow (API) 导出 JSON。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("从 ComfyUI 的 File → Export Workflow (API) 导出 JSON。导入时会自动绑定唯一的参考图，以及采样条件链上唯一的提示词。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !working && state.ready, modifier = Modifier.weight(1f)) { Text("导入文件") }
             OutlinedButton(onClick = { paste = !paste }, enabled = !working && state.ready, modifier = Modifier.weight(1f)) { Text("粘贴 JSON") }

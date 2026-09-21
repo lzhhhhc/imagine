@@ -57,6 +57,21 @@ object ImageUtils {
         null
     }
 
+    internal data class CoverFrame(val coverWidth: Int, val coverHeight: Int, val cropX: Int, val cropY: Int)
+
+    /** 覆盖目标尺寸所需的缩放画布，以及居中裁切起点。结果尺寸始终是目标尺寸。 */
+    internal fun coverFrame(sourceWidth: Int, sourceHeight: Int, targetWidth: Int, targetHeight: Int): CoverFrame {
+        val scale = maxOf(targetWidth.toFloat() / sourceWidth, targetHeight.toFloat() / sourceHeight)
+        val coverWidth = (sourceWidth * scale).toInt().coerceAtLeast(targetWidth)
+        val coverHeight = (sourceHeight * scale).toInt().coerceAtLeast(targetHeight)
+        return CoverFrame(
+            coverWidth,
+            coverHeight,
+            ((coverWidth - targetWidth) / 2).coerceAtLeast(0),
+            ((coverHeight - targetHeight) / 2).coerceAtLeast(0)
+        )
+    }
+
     fun bitmapToPng(bitmap: Bitmap): ByteArray {
         val out = java.io.ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -115,6 +130,24 @@ object ImageUtils {
             (source.height * scale).toInt().coerceAtLeast(1),
             true
         )
+    }
+
+    /**
+     * 修图结果必须等于用户选定的宽高。模型返回的画幅或分辨率不论偏差多大，都按覆盖缩放后居中裁切，
+     * 不拉伸。已是目标尺寸时原样返回，避免重复编码。
+     */
+    fun exactOutputSize(source: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
+        if (source.isRecycled || targetWidth <= 0 || targetHeight <= 0) return source
+        if (source.width == targetWidth && source.height == targetHeight) return source
+        val frame = coverFrame(source.width, source.height, targetWidth, targetHeight)
+        val cover = Bitmap.createScaledBitmap(source, frame.coverWidth, frame.coverHeight, true)
+        return if (frame.cropX == 0 && frame.cropY == 0 && cover.width == targetWidth && cover.height == targetHeight) {
+            cover
+        } else {
+            val out = Bitmap.createBitmap(cover, frame.cropX, frame.cropY, targetWidth, targetHeight)
+            if (out !== cover) cover.recycle()
+            out
+        }
     }
 
     /**

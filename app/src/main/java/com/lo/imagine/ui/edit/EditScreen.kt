@@ -201,6 +201,7 @@ fun EditScreen(
         EditState.elapsed = 0
         EditState.error = null
         EditState.results = emptyList()
+        val outputSize = EditState.size
 
         if (EditState.refBitmaps.isEmpty()) return
         com.lo.imagine.data.GenerationTasks.launch(
@@ -234,7 +235,7 @@ fun EditScreen(
                                 mimeType = "image/jpeg",
                                 prompt = prompt,
                                 negativePrompt = "lowres, blurry, watermark, distorted, unwanted changes",
-                                size = EditState.size,
+                                size = outputSize,
                                 count = 1,
                                 maskBytes = maskBytes
                             )
@@ -259,18 +260,14 @@ fun EditScreen(
                     for (r in ordered) {
                         val res = r.getOrNull()
                         if (res is ApiResult.Success) {
-                            // 画质兜底：上游若忽略 size，放大到所选画质档长边
-                            val sizeParts = EditState.size.split("x")
+                            // 修图尺寸是明确选择：不论模型是否照做、也不受「画质补齐」开关影响，结果都裁成这个尺寸。
+                            val sizeParts = outputSize.split("x")
                             val targetW = sizeParts.getOrNull(0)?.toIntOrNull() ?: 0
                             val targetH = sizeParts.getOrNull(1)?.toIntOrNull() ?: 0
                             val taskOut = mutableListOf<com.lo.imagine.data.ImageData>()
                             res.images.forEach { img ->
                                 val rawBitmap = repository.resolveBitmap(img)
-                                val finalBitmap = if (rawBitmap != null && !settings.upscaleEnabled) {
-                                    rawBitmap
-                                } else {
-                                    ImageUtils.ensureResolution(rawBitmap, targetW, targetH)
-                                }
+                                val finalBitmap = rawBitmap?.let { ImageUtils.exactOutputSize(it, targetW, targetH) }
                                 val upstreamNote = rawBitmap?.let { "${it.width}x${it.height}" }
                                 if (rawBitmap != null) {
                                     android.util.Log.i(
@@ -280,7 +277,7 @@ fun EditScreen(
                                     )
                                 }
                                 val out: com.lo.imagine.data.ImageData? = when {
-                                    rawBitmap != null && finalBitmap !== rawBitmap -> {
+                                    rawBitmap != null && finalBitmap != null && finalBitmap !== rawBitmap -> {
                                         val upscaledB64 = android.util.Base64.encodeToString(
                                             ImageUtils.bitmapToJpegBytes(finalBitmap),
                                             android.util.Base64.NO_WRAP
@@ -304,7 +301,7 @@ fun EditScreen(
                                 if (rawBitmap != null) {
                                     ImageUtils.archiveResult(
                                         context = context,
-                                        bitmap = finalBitmap,
+                                        bitmap = finalBitmap ?: rawBitmap,
                                         prompt = prompt,
                                         model = settings.editModel,
                                         kind = "edit",

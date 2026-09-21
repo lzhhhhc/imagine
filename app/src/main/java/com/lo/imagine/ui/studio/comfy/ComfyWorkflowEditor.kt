@@ -158,6 +158,12 @@ internal fun ComfyWorkflowEditor(initial: ComfyWorkflow, repository: ComfyReposi
                     Text("生成页会通过 ComfyUI /upload/image 上传并写入 LoadImage.image。当前值：${p.value.ifBlank { "未设置" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     PopTextField(p.value, { text -> workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(value = text) else it }) }, label = "初始值", maxLines = 4)
+                    val convertible = p.targets.isNotEmpty() && p.targets.all { target ->
+                        workflow.graph.getAsJsonObject(target.nodeId)?.get("class_type")?.asString == "LoadImage" && target.input == "image"
+                    }
+                    if (convertible) TextButton(onClick = {
+                        workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(kind = ParameterKind.IMAGE) else it })
+                    }) { Text("改为参考图片（手机选图上传）") }
                 }
             }
         }

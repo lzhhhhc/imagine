@@ -28,6 +28,7 @@ class ComfyTaskTest {
         val downloads = mutableListOf<String>()
         override suspend fun inspect(connection: ComfyConnection) = "ok"
         override suspend fun nodeInfo(connection: ComfyConnection, classType: String) = JsonObject()
+        override suspend fun upload(connection: ComfyConnection, source: File, filename: String) = UploadedImage(filename)
         override suspend fun submit(connection: ComfyConnection, graph: JsonObject, clientId: String): Submission {
             submissions++; submitError?.let { throw it }; return Submission("prompt-1")
         }

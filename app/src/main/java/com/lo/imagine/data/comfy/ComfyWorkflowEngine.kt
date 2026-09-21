@@ -88,6 +88,7 @@ object ComfyWorkflowEngine {
             val id = latents.single().key
             add(ParameterKind.WIDTH, id, "width"); add(ParameterKind.HEIGHT, id, "height"); add(ParameterKind.BATCH, id, "batch_size")
         }
+        // Reference-image binding is intentionally manual: never guess which LoadImage node the user means.
         return params.sortedBy { it.kind.ordinal }
     }
 
@@ -118,6 +119,13 @@ object ComfyWorkflowEngine {
                 targetType = type
                 if (parameter.kind in setOf(ParameterKind.SEED, ParameterKind.STEPS, ParameterKind.WIDTH, ParameterKind.HEIGHT, ParameterKind.CFG, ParameterKind.BATCH)) {
                     require(p.isNumber) { "${parameter.label} 必须绑定数值输入" }
+                }
+                if (parameter.kind == ParameterKind.IMAGE) {
+                    require(graph.getAsJsonObject(target.nodeId).get("class_type").asString == "LoadImage" && target.input == "image") {
+                        "参考图片只能绑定 LoadImage.image"
+                    }
+                    require(p.isString) { "参考图片必须绑定文本文件名输入" }
+                    if (resolveRandom) require(raw.isNotBlank()) { "请选择并上传参考图片" }
                 }
                 val next = when {
                     p.isBoolean -> { require(raw in listOf("true", "false")) { "${parameter.label} 需要 true 或 false" }; JsonPrimitive(raw.toBoolean()) }

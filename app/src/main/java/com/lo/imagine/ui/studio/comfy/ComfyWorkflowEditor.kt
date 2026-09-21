@@ -154,15 +154,27 @@ internal fun ComfyWorkflowEditor(initial: ComfyWorkflow, repository: ComfyReposi
                     TextButton(onClick = { workflow = workflow.copy(parameters = workflow.parameters.filterNot { it.id == p.id }) }) { Text("移除") }
                 }
                 Text(p.targets.joinToString { it.key }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                PopTextField(p.value, { text -> workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(value = text) else it }) }, label = "初始值", maxLines = 4)
+                if (p.kind == ParameterKind.IMAGE) {
+                    Text("生成页会通过 ComfyUI /upload/image 上传并写入 LoadImage.image。当前值：${p.value.ifBlank { "未设置" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    PopTextField(p.value, { text -> workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(value = text) else it }) }, label = "初始值", maxLines = 4)
+                }
             }
         }
         OutlinedButton(onClick = { binding = !binding }) { Text(if (binding) "收起绑定" else "添加参数绑定") }
         if (binding) {
             PopTextField(parameterName, { parameterName = it }, label = "参数名称", placeholder = "例如：画面提示词", singleLine = true)
-            ComfyChoice("参数用途", kind.label, ParameterKind.entries.map { it.label }) { label -> kind = ParameterKind.entries.first { it.label == label }; if (parameterName.isBlank()) parameterName = label }
+            ComfyChoice("参数用途", kind.label, ParameterKind.entries.map { it.label }) { label ->
+                kind = ParameterKind.entries.first { it.label == label }
+                targets = emptyList()
+                if (parameterName.isBlank()) parameterName = label
+            }
             PopTextField(search, { search = it }, label = "搜索节点或输入字段", singleLine = true)
-            val candidates = scalars.filter { (it.nodeTitle + it.target.input).contains(search, ignoreCase = true) }
+            val candidates = scalars.filter { field ->
+                val imageTarget = kind == ParameterKind.IMAGE && workflow.graph.getAsJsonObject(field.target.nodeId)?.get("class_type")?.asString == "LoadImage" && field.target.input == "image"
+                val allowed = if (kind == ParameterKind.IMAGE) imageTarget else true
+                allowed && (field.nodeTitle + field.target.input).contains(search, ignoreCase = true)
+            }
             Column(Modifier.heightIn(max = 240.dp).then(Modifier)) {
                 androidx.compose.foundation.lazy.LazyColumn {
                     items(candidates.size) { index ->

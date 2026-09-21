@@ -18,11 +18,11 @@ data class ComfyConnection(
 ) {
     fun fingerprint(): String = comfyHash("$providerId\n$baseUrl\n$bearerToken")
 }
-
 enum class ParameterKind(val label: String) {
-    PROMPT("画面提示词"), NEGATIVE("负面提示词"), SEED("种子"), STEPS("步数"),
+    PROMPT("画面提示词"), NEGATIVE("负面提示词"), IMAGE("参考图片"), SEED("种子"), STEPS("步数"),
     CFG("CFG"), WIDTH("宽度"), HEIGHT("高度"), BATCH("批量"), CUSTOM("其他参数")
 }
+
 data class InputTarget(val nodeId: String = "", val input: String = "") {
     val key: String get() = "$nodeId/$input"
 }
@@ -45,7 +45,21 @@ data class ComfyWorkflow(
 )
 data class ScalarInput(val target: InputTarget, val nodeTitle: String, val value: String, val type: String)
 data class PreparedWorkflow(val graph: JsonObject, val values: Map<String, String>)
+const val COMFY_MAX_UPLOAD_BYTES = 128L * 1024 * 1024
+data class UploadedImage(
+    val filename: String = "", val subfolder: String = "", val type: String = "input"
+) {
+    init {
+        require(filename.isNotBlank() && filename != "." && filename != "..") { "上传响应缺少有效文件名" }
+        require(filename.substringAfterLast('/') == filename && filename.substringAfterLast('\\') == filename) { "上传响应文件名不能包含路径" }
+        require(type == "input") { "图片未上传到 ComfyUI 输入目录" }
+        require(subfolder.split('/').none { it == ".." }) { "上传响应包含非法目录" }
+    }
+    val inputValue: String
+        get() = listOf(subfolder.trim('/'), filename).filter { it.isNotBlank() }.joinToString("/")
+}
 data class RemoteImage(
+
     val nodeId: String = "", val filename: String = "", val subfolder: String = "", val type: String = "output"
 ) {
     val key: String get() = comfyHash("$filename\n$subfolder\n$type").take(24)
@@ -101,7 +115,9 @@ interface WorkflowBackend {
     val providerId: String
     suspend fun inspect(connection: ComfyConnection): String
     suspend fun nodeInfo(connection: ComfyConnection, classType: String): JsonObject
+    suspend fun upload(connection: ComfyConnection, source: File, filename: String): UploadedImage
     suspend fun submit(connection: ComfyConnection, graph: JsonObject, clientId: String): Submission
+
     suspend fun status(connection: ComfyConnection, id: String, outputs: List<String>): RemoteStatus
     suspend fun findSubmitted(connection: ComfyConnection, clientId: String): List<String>
     suspend fun removeQueued(connection: ComfyConnection, id: String)

@@ -8,6 +8,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okio.BufferedSink
 import java.io.File
 import java.io.IOException
+import java.net.URLConnection
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -28,9 +29,13 @@ class ComfyClient : WorkflowBackend {
         require(c.providerId == providerId) { "未实现的后端：${c.providerId}" }
         return comfyBaseUrl(c.baseUrl).newBuilder().apply { segments.forEach { addPathSegment(it) } }.build()
     }
-    private fun request(c: ComfyConnection, url: HttpUrl, body: JsonObject? = null): Request {
+    private fun requestBuilder(c: ComfyConnection, url: HttpUrl): Request.Builder {
         val builder = Request.Builder().url(url).header("Accept", "application/json").header("User-Agent", "Imagine-ComfyUI")
         if (c.bearerToken.isNotBlank()) builder.header("Authorization", "Bearer ${c.bearerToken.trim()}")
+        return builder
+    }
+    private fun request(c: ComfyConnection, url: HttpUrl, body: JsonObject? = null): Request {
+        val builder = requestBuilder(c, url)
         if (body != null) {
             val bytes = body.toString().toByteArray(Charsets.UTF_8)
             builder.post(object : RequestBody() {
@@ -41,6 +46,25 @@ class ComfyClient : WorkflowBackend {
             })
         }
         return builder.build()
+    }
+    private fun fileBody(source: File, mediaType: MediaType, length: Long): RequestBody = object : RequestBody() {
+        override fun contentType() = mediaType
+        override fun contentLength() = length
+        override fun isOneShot() = true
+        override fun writeTo(sink: BufferedSink) {
+            var copied = 0L
+            source.inputStream().use { input ->
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    copied += count
+                    require(copied <= length) { "上传文件在读取时变大" }
+                    sink.write(buffer, 0, count)
+                }
+            }
+            require(copied == length) { "上传文件读取不完整" }
+        }
     }
     private suspend fun <T> execute(request: Request, consume: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
         val call = http.newCall(request)
@@ -94,6 +118,27 @@ class ComfyClient : WorkflowBackend {
     override suspend fun nodeInfo(connection: ComfyConnection, classType: String): JsonObject =
         get(connection, "object_info", classType).get(classType)?.takeIf { it.isJsonObject }?.asJsonObject
             ?: throw IllegalArgumentException("服务器未安装节点：$classType")
+
+    override suspend fun upload(connection: ComfyConnection, source: File, filename: String): UploadedImage {
+        require(source.isFile) { "待上传图片不存在" }
+        val length = source.length()
+        require(length in 1..COMFY_MAX_UPLOAD_BYTES) { "图片大小必须在 1 B–128 MiB 之间" }
+        require(filename.isNotBlank() && filename.length <= 255 && filename == filename.substringAfterLast('/') && filename == filename.substringAfterLast('\\') && filename.none { it.isISOControl() }) {
+            "上传文件名无效"
+        }
+        val mediaType = URLConnection.guessContentTypeFromName(filename)?.toMediaType() ?: "application/octet-stream".toMediaType()
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("image", filename, fileBody(source, mediaType, length))
+            .addFormDataPart("type", "input")
+            .build()
+        val request = requestBuilder(connection, endpoint(connection, "upload", "image")).post(multipart).build()
+        val json = execute(request, ::jsonResponse)
+        val name = json.get("name")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            ?: throw IOException("上传响应缺少文件名")
+        val subfolder = json.get("subfolder")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString.orEmpty()
+        val type = json.get("type")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString ?: "input"
+        return UploadedImage(name, subfolder, type)
+    }
 
     override suspend fun submit(connection: ComfyConnection, graph: JsonObject, clientId: String): Submission {
         val body = JsonObject().apply { add("prompt", graph); addProperty("client_id", clientId) }

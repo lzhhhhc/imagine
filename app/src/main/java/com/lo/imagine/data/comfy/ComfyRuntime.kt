@@ -3,6 +3,8 @@ package com.lo.imagine.data.comfy
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -14,8 +16,52 @@ import com.lo.imagine.util.HistoryMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 /** One owner shared by the workbench and settings. No Activity or Composable owns the task. */
+data class LocalComfyImage(val file: File, val filename: String)
+
+suspend fun copyComfyImage(context: Context, uri: Uri): LocalComfyImage = withContext(Dispatchers.IO) {
+    val resolver = context.contentResolver
+    val displayName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+    val mime = resolver.getType(uri).orEmpty().lowercase()
+    require(mime.isBlank() || mime.startsWith("image/")) { "请选择图片文件" }
+    val suffix = when {
+        mime == "image/png" -> "png"
+        mime == "image/jpeg" -> "jpg"
+        mime == "image/webp" -> "webp"
+        else -> displayName?.substringAfterLast('.', "")?.lowercase()?.takeIf { it in setOf("png", "jpg", "jpeg", "webp", "bmp", "gif") } ?: "img"
+    }
+    val base = displayName?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf {
+        it.isNotBlank() && it.length <= 180 && it.none { char -> char.isISOControl() }
+    }
+    val filename = if (base != null) base else "reference_${comfyId()}.$suffix"
+    val target = File.createTempFile("comfy-upload-", ".part", context.cacheDir)
+    try {
+        val input = resolver.openInputStream(uri) ?: error("图片文件无法读取")
+        var size = 0L
+        FileOutputStream(target).use { output ->
+            input.use { stream ->
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    size += count
+                    require(size <= COMFY_MAX_UPLOAD_BYTES) { "图片超过 128 MiB" }
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+        require(size > 0) { "图片文件为空" }
+        LocalComfyImage(target, filename)
+    } catch (e: Exception) {
+        target.delete()
+        throw e
+    }
+}
+
 class ComfyRuntime private constructor(context: Context) {
     private val app = context.applicationContext
     val backend: WorkflowBackend = ComfyClient()

@@ -107,6 +107,26 @@ class ComfyWorkflowTest {
         val error = assertThrows(IllegalArgumentException::class.java) { ComfyWorkflowEngine.validateWithInfo(prepared.graph, mapOf("Custom" to schema)) }
         assertTrue(error.message!!.contains("1.count"))
     }
+    @Test fun `image bindings accept only LoadImage image inputs and require an uploaded filename`() {
+        val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"LoadImage","inputs":{"image":"example.png","upload":"image"}},"2":{"class_type":"CLIPTextEncode","inputs":{"text":"a","clip":["3",1]}},"3":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"model.safetensors"}}}""")
+        val loader = WorkflowParameter(label = "参考图片", kind = ParameterKind.IMAGE, targets = listOf(InputTarget("1", "image")), value = "example.png")
+        val prepared = ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = listOf(loader), outputNodes = listOf("1")))
+        assertEquals("example.png", prepared.graph.getAsJsonObject("1").getAsJsonObject("inputs").get("image").asString)
+        // 绑定错误目标（文本节点）必须被拒绝
+        assertThrows(IllegalArgumentException::class.java) {
+            ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = listOf(WorkflowParameter(label = "参考图片", kind = ParameterKind.IMAGE, targets = listOf(InputTarget("2", "text")), value = "example.png")), outputNodes = listOf("1")))
+        }
+        // 空文件名在提交前被拒绝
+        assertThrows(IllegalArgumentException::class.java) {
+            ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = listOf(loader.copy(value = "")), outputNodes = listOf("1")))
+        }
+    }
+    @Test fun `subfolder reference image values are preserved for later uploads`() {
+        assertEquals("sub/图片 空格.png", UploadedImage("图片 空格.png", "sub").inputValue)
+        assertEquals("a.png", UploadedImage("a.png", "").inputValue)
+        assertThrows(IllegalArgumentException::class.java) { UploadedImage("../evil.png") }
+        assertThrows(IllegalArgumentException::class.java) { UploadedImage("a.png", type = "temp") }
+    }
     @Test fun `server choices and numeric bounds are respected`() {
         val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"Custom","inputs":{"model":"missing","steps":2}}}""")
         val schema = JsonParser.parseString("""{"input":{"required":{"model":[["available"]],"steps":["INT",{"min":1,"max":10}]}}}""").asJsonObject

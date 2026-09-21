@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,6 +31,12 @@ import com.lo.imagine.util.ImageUtils
 import kotlinx.coroutines.*
 import java.io.File
 
+private data class ComfyImageUploadTarget(
+    val workflowId: String,
+    val parameterId: String,
+    val connection: ComfyConnection
+)
+
 @Composable
 fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, onPreview: () -> Unit) {
     val context = LocalContext.current
@@ -36,6 +44,42 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
     val repository = runtime.repository
     val state by repository.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var imageTarget by remember { mutableStateOf<ComfyImageUploadTarget?>(null) }
+    var uploadingImageParameter by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val target = imageTarget
+        imageTarget = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            var local: LocalComfyImage? = null
+            uploadingImageParameter = target.parameterId
+            repository.clearError()
+            try {
+                val copied = copyComfyImage(context, uri)
+                local = copied
+                val uploaded = withContext(Dispatchers.IO) { runtime.backend.upload(target.connection, copied.file, copied.filename) }
+                val current = repository.state.value
+                require(current.selectedId == target.workflowId && current.connection.fingerprint() == target.connection.fingerprint()) {
+                    "工作流或服务器已切换，请重新选择图片"
+                }
+                val selected = current.selected
+                val parameterStillTargetsLoadImage = selected?.parameters?.any { parameter ->
+                    parameter.id == target.parameterId && parameter.kind == ParameterKind.IMAGE && parameter.targets.any { input ->
+                        input.input == "image" && selected.graph.getAsJsonObject(input.nodeId)?.get("class_type")?.asString == "LoadImage"
+                    }
+                } == true
+                require(parameterStillTargetsLoadImage) { "参考图片绑定已变化，请重新打开工作流后选择" }
+                repository.editParameter(target.workflowId, target.parameterId, value = uploaded.inputValue)
+                repository.flushDraft()
+                repository.change { it.copy(status = "参考图片已上传：${uploaded.inputValue}") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { repository.report(e) }
+            finally {
+                local?.file?.delete()
+                uploadingImageParameter = null
+            }
+        }
+    }
     var connectionOpen by rememberSaveable { mutableStateOf(false) }
     var workflowsOpen by rememberSaveable { mutableStateOf(false) }
     var paramsOpen by rememberSaveable { mutableStateOf(false) }
@@ -107,6 +151,27 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                 PopTextField(p.value, { repository.editParameter(workflow.id, p.id, value = it) },
                     modifier = Modifier.padding(horizontal = 16.dp), label = p.label, minLines = if (p.kind == ParameterKind.PROMPT) 4 else 2, maxLines = 10)
             }
+            items(workflow.parameters.filter { it.kind == ParameterKind.IMAGE }, key = { it.id }) { p ->
+                ArkInkPanel(Modifier.padding(horizontal = 16.dp)) {
+                    Text(p.label, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (p.value.isBlank()) "尚未上传参考图片"
+                        else "已上传：${p.value}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            imageTarget = ComfyImageUploadTarget(workflow.id, p.id, state.connection.copy())
+                            imagePicker.launch("image/*")
+                        },
+                        enabled = state.connection.baseUrl.isNotBlank() && !state.busy && uploadingImageParameter == null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (uploadingImageParameter == p.id) "上传中…" else if (p.value.isBlank()) "选择并上传图片" else "更换参考图片")
+                    }
+                }
+            }
             item {
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -115,7 +180,7 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                     }
                     if (workflow.parameters.isEmpty()) Text("按工作流原值运行。可在工作流编辑页添加参数绑定。", style = MaterialTheme.typography.bodySmall)
                     if (paramsOpen) {
-                        workflow.parameters.filter { it.kind !in setOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE) }.forEach { p ->
+                        workflow.parameters.filter { it.kind !in setOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE, ParameterKind.IMAGE) }.forEach { p ->
                             val target = p.targets.firstOrNull()
                             val type = target?.let { workflow.graph.getAsJsonObject(it.nodeId).get("class_type").asString }
                             val definition = schema[type]?.getAsJsonObject("input")?.let { fields ->
@@ -144,10 +209,10 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { repository.report(e) }
                         finally { checking = false }
-                    } }, enabled = !checking && !state.busy && state.connection.baseUrl.isNotBlank()) {
+                    } }, enabled = !checking && !state.busy && uploadingImageParameter == null && state.connection.baseUrl.isNotBlank()) {
                         Text(if (checking) "检查中…" else if (checkedFor == fingerprint) "重新检查工作流" else "检查服务器节点与参数")
                     }
-                    ArkGenerateBar(loading = state.busy, enabled = state.ready && !state.busy && state.connection.baseUrl.isNotBlank(),
+                    ArkGenerateBar(loading = state.busy, enabled = state.ready && !state.busy && uploadingImageParameter == null && state.connection.baseUrl.isNotBlank(),
                         label = if (state.busy) state.status else "开始生成", sub = "COMFYUI WORKFLOW", onClick = { runtime.coordinator.generate(settings.autoSaveGallery) })
                     if (state.busy) {
                         Text(state.status, style = MaterialTheme.typography.bodySmall)

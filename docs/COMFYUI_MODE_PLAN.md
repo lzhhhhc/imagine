@@ -33,13 +33,14 @@
 
 ### 1.3 后续独立扩展
 
-- 手机选参考图与 `/upload/image`、LoadImage 绑定，形成完整图生图体验。
 - WebSocket 节点进度和预览图；若引入，应独立定义事件与最终历史查询的职责。
 - 多服务器档案、非 Bearer 的鉴权方式。
 - Comfy Cloud、RunningHub 等不同协议的专用适配。
 - 可视化节点编辑器、普通画布格式转换、工作流市场。
 - 视频、音频、3D 等输出，以及任意复杂类型参数编辑。
 - 已验证服务端版本的定向中断能力。
+
+注：原列于此的「手机选参考图与 `/upload/image`、LoadImage 绑定」已在 v1.5 实现（见 14.6 节）。
 
 首版可以运行已有服务器文件引用的工作流，但不会把这等同于已经支持手机端上传图片。自定义节点可原样提交给服务器，能否执行仍取决于服务端是否安装节点、模型与依赖。
 
@@ -536,3 +537,16 @@ stateDiagram-v2
 本次版本 `1.2 / versionCode 3` 通过 `tools/release.sh --local-only` 生成本地 APK。该选项是明确选定的交付方式；没有因网络/发布失败切换到其他路径。
 
 GitHub 发布受阻：此前聊天中出现过的 GitHub 凭据已视为泄露，本轮没有调用它进行推送或发布。应撤销旧凭据并在本机安全重新认证，再由助手继续推送与创建 Release。应用内检查更新目前仍只能看到已发布的旧版本。
+
+### 14.6 v1.5 参考图上传增补
+
+用户在真实使用中反馈「已连上本地电脑，但无法自己注入图片」。这是首版刻意的边界（见原 1.3 节），本轮正式补上「选图 → 上传 `/upload/image` → 写入 LoadImage.image」链路：
+
+- `WorkflowBackend` 新增 `upload(connection, source, filename)`；`ComfyClient` 以 multipart/form-data POST 到 `/upload/image`（字段 `image` + `type=input`），单文件上限 128 MiB，单次发送（isOneShot）。
+- `UploadedImage` 数据模型校验服务器响应：文件名非空且不含路径分隔符、`type` 必须为 `input`、`subfolder` 拒绝 `..`；`inputValue` 组合为 LoadImage.image 所需的相对路径值。
+- `ParameterKind` 新增 `IMAGE`（参考图片）。绑定校验强制 IMAGE 参数只能指向 `LoadImage.image` 字符串输入；提交时空文件名被拒绝（resolveRandom=false 的保存路径除外）。
+- 工作台为 IMAGE 参数显示独立选图卡片：系统图片选择器 → 复制到应用缓存（流式、限 128 MiB）→ 上传 → 服务器返回文件名写入参数并立即落盘。上传期间禁用生成与检查按钮；失败仅报错，不回退到任何旧接口。
+- 工作流编辑器：参数用途选择「参考图片」时候选列表只显示 LoadImage.image；切换用途清空已勾选目标，避免跨类型残留；IMAGE 参数不再显示自由文本输入。
+- 不自动猜测 LoadImage 节点：suggest() 不为 IMAGE 生成建议，绑定一律由用户在编辑器里显式选择（沿用「歧义不自动选择」原则）。
+
+验证：`:app:assembleDebug :app:testDebugUnitTest` 通过，229 项测试（新增 5 项覆盖 multipart 请求格式、单次发送、坏响应拒绝、本地文件预检、IMAGE 绑定校验、UploadedImage 路径安全），0 失败 0 错误，1 项 opt-in 联调跳过。

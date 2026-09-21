@@ -8,6 +8,7 @@ import okio.Buffer
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -61,6 +62,42 @@ class ComfyClientTest {
         server.enqueue(response("{\"prompt_id\":{}}"))
         try { client.submit(connection, sampleGraph(), "client-2"); fail() } catch (_: SubmissionUncertain) { }
         assertEquals(2, server.requestCount)
+    }
+    @Test fun `upload posts multipart image exactly once and returns input name`() = runBlocking {
+        val bytes = byteArrayOf(0, 1, 2, -1, 127, 33)
+        val file = temp.newFile()
+        file.writeBytes(bytes)
+        server.enqueue(response("""{"name":"cat 空格.png","subfolder":"","type":"input"}"""))
+        val uploaded = client.upload(connection, file, "cat 空格.png")
+        assertEquals("cat 空格.png", uploaded.filename)
+        assertEquals("cat 空格.png", uploaded.inputValue)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/proxy/comfy/upload/image", req.path)
+        assertEquals("Bearer test-only-not-a-secret", req.getHeader("Authorization"))
+        val contentType = req.headers.values("Content-Type").single()
+        assertTrue(contentType.startsWith("multipart/form-data"))
+        assertTrue(contentType.contains("boundary="))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("name=\"image\""))
+        assertTrue(body.contains("filename=\"cat 空格.png\""))
+        assertTrue(body.contains("name=\"type\""))
+        assertEquals(1, server.requestCount)
+    }
+    @Test fun `upload rejects bad responses without rewriting parameter values`() = runBlocking {
+        val file = temp.newFile(); file.writeBytes(byteArrayOf(1, 2, 3))
+        for (body in listOf("{}", """{"name":""}""", """{"name":"a.png","type":"temp"}""", """{"name":"a.png","subfolder":"../x"}""")) {
+            server.enqueue(response(body))
+            assertTrue("expected failure for $body", runCatching { client.upload(connection, file, "a.png") }.isFailure)
+        }
+        assertEquals(4, server.requestCount)
+    }
+    @Test fun `upload rejects invalid local files before any network request`() = runBlocking {
+        val missing = File(temp.root, "missing.png")
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { client.upload(connection, missing, "a.png") } }
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { client.upload(connection, temp.newFile(), "dir/name.png") } }
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { client.upload(connection, temp.newFile(), "") } }
+        assertEquals(0, server.requestCount)
     }
     @Test fun `validation rejection is definitive and includes node ids`() = runBlocking {
         server.enqueue(response("""{"error":{"message":"validation failed"},"node_errors":{"5":{}}}""").setResponseCode(400))

@@ -31,6 +31,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.lo.imagine.data.AppUpdater
 import com.lo.imagine.data.UpdateInfo
 import com.lo.imagine.data.UpdateSource
+import com.lo.imagine.data.shouldOfferUpdate
 import com.lo.imagine.ui.PIcon
 import com.lo.imagine.ui.PopBusySpinner
 import com.lo.imagine.ui.RefIcons
@@ -375,6 +376,121 @@ internal fun UpdateCard(modifier: Modifier = Modifier) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private const val UPDATE_PREFS = "imagine-update"
+private const val DISMISSED_TAG = "dismissed_tag"
+
+/**
+ * 开场结束后静默检查一次。只有更新的、且没有被「稍后再说」压住的版本才弹窗。
+ * 网络失败不提示，避免每次启动都报错。
+ */
+@Composable
+internal fun UpdatePrompt(enabled: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updater = remember { AppUpdater(context) }
+    var info by remember { mutableStateOf<UpdateInfo?>(null) }
+    var phase by remember { mutableStateOf(UpdatePhase.IDLE) }
+    var apk by remember { mutableStateOf<File?>(null) }
+    var progress by remember { mutableStateOf(0f) }
+    var message by remember { mutableStateOf("") }
+    LaunchedEffect(enabled) {
+        if (!enabled || info != null) return@LaunchedEffect
+        val found = updater.checkForUpdate().getOrNull() ?: return@LaunchedEffect
+        val dismissed = context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE).getString(DISMISSED_TAG, null)
+        if (!shouldOfferUpdate(found.tag, updater.currentVersionName(), dismissed)) return@LaunchedEffect
+        info = found
+        phase = UpdatePhase.AVAILABLE
+    }
+    val target = info ?: return
+    fun postpone() {
+        context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE).edit().putString(DISMISSED_TAG, target.tag).apply()
+        info = null
+    }
+    fun tryInstall(file: File) {
+        if (!updater.canInstallPackages()) {
+            phase = UpdatePhase.NEED_PERMISSION
+            message = "需要先允许「安装未知应用」"
+            openInstallPermission(context)
+            return
+        }
+        updater.install(file)
+            .onSuccess { phase = UpdatePhase.READY }
+            .onFailure { phase = UpdatePhase.FAILED; message = it.message ?: "无法打开安装器" }
+    }
+    fun download() {
+        updater.cachedApk(target)?.let { cached -> apk = cached; tryInstall(cached); return }
+        phase = UpdatePhase.DOWNLOADING
+        progress = 0f
+        message = ""
+        scope.launch {
+            updater.download(target) { progress = it }
+                .onSuccess { file -> apk = file; tryInstall(file) }
+                .onFailure { phase = UpdatePhase.FAILED; message = it.message ?: "下载失败" }
+        }
+    }
+    Dialog(
+        onDismissRequest = { if (phase != UpdatePhase.DOWNLOADING) postpone() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            shape = themedShape(PopRadius.sheet),
+            border = BorderStroke(2.dp, celInk()),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 26.dp)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("发现新版本", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(target.title.ifBlank { target.tag }, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                val meta = listOfNotNull(target.publishedAt.takeIf { it.isNotBlank() }?.let { "发布于 $it" }, target.apkSize.takeIf { it > 0 }?.let { formatSize(it) }).joinToString(" · ")
+                if (meta.isNotBlank()) Text(meta, fontSize = 10.sp, lineHeight = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    Text(target.notes.ifBlank { "该版本没有提供更新说明。" }, fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (phase == UpdatePhase.DOWNLOADING) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("正在下载 ${(progress * 100).toInt()}%", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                }
+                if (message.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(message, fontSize = 11.sp, lineHeight = 17.sp, color = if (phase == UpdatePhase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(12.dp))
+                val label = when (phase) {
+                    UpdatePhase.DOWNLOADING -> "下载中…"
+                    UpdatePhase.NEED_PERMISSION -> "已授权，去安装"
+                    UpdatePhase.READY -> "再次打开安装器"
+                    UpdatePhase.FAILED -> if (apk != null) "重试安装" else "重试下载"
+                    else -> "下载并安装"
+                }
+                Surface(
+                    onClick = {
+                        when (phase) {
+                            UpdatePhase.NEED_PERMISSION, UpdatePhase.READY -> apk?.let { tryInstall(it) } ?: download()
+                            UpdatePhase.FAILED -> if (apk != null) tryInstall(apk!!) else download()
+                            UpdatePhase.DOWNLOADING -> Unit
+                            else -> download()
+                        }
+                    },
+                    enabled = phase != UpdatePhase.DOWNLOADING,
+                    shape = themedShape(PopRadius.field),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+                TextButton(onClick = ::postpone, enabled = phase != UpdatePhase.DOWNLOADING, modifier = Modifier.fillMaxWidth()) { Text("稍后再说") }
             }
         }
     }

@@ -126,4 +126,21 @@ class AppUpdaterTest {
             card.contains("UpdatePhase.FAILED -> if (apk != null) tryInstall")
         )
     }
+
+    @Test fun `startup prompt offers only a newer release that was not postponed`() {
+        assertTrue(shouldOfferUpdate("v1.9", "1.8", null))
+        assertFalse(shouldOfferUpdate("1.8", "1.8", null))
+        assertFalse(shouldOfferUpdate("v1.7", "1.8", null))
+        assertFalse(shouldOfferUpdate("v1.9", "1.8", "1.9"))
+        assertTrue(shouldOfferUpdate("v1.10", "1.8", "v1.9"))
+    }
+
+    @Test fun `startup prompt appears after the opening film and can be postponed`() {
+        val main = File("src/main/java/com/lo/imagine/MainActivity.kt").readText()
+        assertTrue(main.contains("UpdatePrompt(enabled = !introVisible)"))
+        val card = File("src/main/java/com/lo/imagine/ui/settings/UpdateCard.kt").readText()
+        assertTrue(card.contains("发现新版本"))
+        assertTrue(card.contains("稍后再说"))
+        assertTrue(card.contains("dismissed_tag"))
+    }
 }

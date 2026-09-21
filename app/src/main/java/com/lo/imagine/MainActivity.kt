@@ -29,6 +29,7 @@ import com.lo.imagine.data.ThemeMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.lo.imagine.ui.launch.OpeningIntro
 import com.lo.imagine.ui.ImagineApp
+import com.lo.imagine.ui.settings.UpdatePrompt
 import com.lo.imagine.ui.theme.ImagineTheme
 import kotlinx.coroutines.flow.first
 
@@ -102,6 +103,7 @@ class MainActivity : ComponentActivity() {
                     if (introVisible) key(openingSession.sequence) {
                         OpeningIntro(session = openingSession, onFinished = openingSession::finish)
                     }
+                    UpdatePrompt(enabled = !introVisible)
                 }
             }
         }

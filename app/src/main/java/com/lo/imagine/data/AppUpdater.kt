@@ -71,6 +71,13 @@ internal fun compareVersion(a: String, b: String): Int {
     return 0
 }
 
+/** 启动提示只对「比本机新、且用户还没对这个版本点过稍后再说」的发布弹出。 */
+internal fun shouldOfferUpdate(remote: String, local: String, dismissed: String?): Boolean {
+    if (compareVersion(remote, local) <= 0) return false
+    if (dismissed != null && compareVersion(remote, dismissed) <= 0) return false
+    return true
+}
+
 /** 从 release 资产里挑出 APK 附件（大小写不敏感，取第一个）。 */
 internal fun pickApkAsset(assets: List<ReleaseAsset>?): ReleaseAsset? =
     assets?.firstOrNull { it.name?.endsWith(".apk", ignoreCase = true) == true }

@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -23,8 +25,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-private const val CHANNEL_TASK = "imagine_task_progress"
-private const val CHANNEL_DONE = "imagine_task_result"
+private const val CHANNEL_TASK = "imagine_task_progress_v2"
+private const val CHANNEL_DONE = "imagine_task_result_v2"
 private const val ONGOING_ID = 100
 
 /** 创建通知渠道（幂等） */
@@ -86,6 +88,7 @@ class GenerationService : Service() {
     private fun buildOngoing(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_TASK)
             .setSmallIcon(R.drawable.ic_notif_spark)
+            .setLargeIcon(notificationArtwork(this))
             .setContentTitle("Imagine 智绘")
             .setContentText(text)
             .setOngoing(true)
@@ -103,6 +106,16 @@ class GenerationService : Service() {
         }
     }
 }
+
+/** 展开通知时右侧显示当前启动图标，避免系统继续缓存旧图标。 */
+private fun notificationArtwork(app: Context): Bitmap? = runCatching {
+    val drawable = app.packageManager.getApplicationIcon(app.packageName)
+    val bitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, canvas.width, canvas.height)
+    drawable.draw(canvas)
+    bitmap
+}.getOrNull()
 
 /** 系统通知工具：完成后投递一次性结果通知 */
 fun notifyResult(app: Context, title: String, text: String, notifId: Int = Random.nextInt(5000, 9999), failed: Boolean = false) {
@@ -123,6 +136,7 @@ fun notifyResult(app: Context, title: String, text: String, notifId: Int = Rando
         )
         val notification = NotificationCompat.Builder(app, CHANNEL_DONE)
             .setSmallIcon(com.lo.imagine.R.drawable.ic_notif_spark)
+            .setLargeIcon(notificationArtwork(app))
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

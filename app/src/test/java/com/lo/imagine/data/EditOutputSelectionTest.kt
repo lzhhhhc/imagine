@@ -4,24 +4,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class EditOutputSelectionTest {
-    private val square = ASPECT_OPTIONS.first { it.label == "1:1" }
-    private val portrait = ASPECT_OPTIONS.first { it.label == "9:16" }
-    private val edge = QUALITY_TIERS.first { it.id == "high" }.longEdge
-
     @Test
-    fun `the first picture sets the output size`() {
-        val kept = retainEditOutput(false, "1:1", "1024x1024", portrait, edge)
-        assertEquals("9:16", kept.aspectLabel)
-        assertEquals(portrait.sizeFor(edge), kept.size)
-        assertEquals(true, kept.locked)
+    fun `default edit quality is 1_5k not the stale 1024 square`() {
+        assertEquals("1536x1536", editOutputPixels("1:1", "high"))
     }
 
     @Test
-    fun `another picture does not replace a chosen size`() {
-        val chosen = square.sizeFor(edge)
-        val kept = retainEditOutput(true, "1:1", chosen, portrait, edge)
-        assertEquals("1:1", kept.aspectLabel)
-        assertEquals(chosen, kept.size)
-        assertEquals(true, kept.locked)
+    fun `pixels follow the selected aspect and quality`() {
+        val portrait = ASPECT_OPTIONS.first { it.label == "9:16" }
+        assertEquals(portrait.sizeFor(2048), editOutputPixels("9:16", "master"))
+    }
+
+    @Test
+    fun `unknown labels fall back to the same defaults as the edit screen`() {
+        assertEquals(editOutputPixels("1:1", "high"), editOutputPixels("nope", "missing"))
     }
 }

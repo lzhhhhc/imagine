@@ -201,7 +201,7 @@ fun EditScreen(
         EditState.elapsed = 0
         EditState.error = null
         EditState.results = emptyList()
-        val outputSize = EditState.size
+        val outputSize = EditState.outputPixels()
 
         if (EditState.refBitmaps.isEmpty()) return
         com.lo.imagine.data.GenerationTasks.launch(
@@ -786,7 +786,7 @@ fun EditScreen(
                 color = MaterialTheme.colorScheme.surface, border = BorderStroke(.7.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("输出设置", fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("${editAspect.label} · ${editQuality.label} · ${EditState.count} 张", fontSize = 10.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${editAspect.label} · ${editQuality.label} · ${EditState.outputPixels()} · ${EditState.count} 张", fontSize = 10.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(7.dp))
                     PIcon(if (outputExpanded) com.lo.imagine.ui.PopChevronUp else com.lo.imagine.ui.PopChevronDown,
                         null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -797,12 +797,12 @@ fun EditScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("输出设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "${editAspect.label} · ${editQuality.label} · ${EditState.count} 张",
+                            "${editAspect.label} · ${editQuality.label} · ${EditState.outputPixels()} · ${EditState.count} 张",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    TinyBadge(EditState.size, accent = true)
+                    TinyBadge(EditState.outputPixels(), accent = true)
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -822,7 +822,6 @@ fun EditScreen(
                                     val quality = QUALITY_TIERS.firstOrNull { it.id == EditState.qualityId }
                                         ?: QUALITY_TIERS[1]
                                     EditState.size = picked.sizeFor(quality.longEdge)
-                                    EditState.outputSizeLocked = true
                                 }
                             }
                         )
@@ -839,7 +838,6 @@ fun EditScreen(
                                     val aspect = ASPECT_OPTIONS.firstOrNull { it.label == EditState.aspectLabel }
                                         ?: ASPECT_OPTIONS.first()
                                     EditState.size = aspect.sizeFor(tier.longEdge)
-                                    EditState.outputSizeLocked = true
                                 }
                             }
                         )

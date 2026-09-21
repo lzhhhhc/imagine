@@ -31,6 +31,14 @@ import com.lo.imagine.util.ImageUtils
 import kotlinx.coroutines.*
 import java.io.File
 
+/** Text the user actually rewrites each run: the prompt itself, or any custom binding that only writes CLIPTextEncode.text. */
+private fun ComfyWorkflow.injectionTexts(): List<WorkflowParameter> = parameters.filter { parameter ->
+    parameter.kind in setOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE) ||
+        (parameter.kind == ParameterKind.CUSTOM && parameter.targets.all { target ->
+            graph.getAsJsonObject(target.nodeId)?.get("class_type")?.asString == "CLIPTextEncode" && target.input == "text"
+        })
+}
+
 private data class ComfyImageUploadTarget(
     val workflowId: String,
     val parameterId: String,
@@ -147,9 +155,10 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
             }
         }
         if (workflow != null) {
-            items(workflow.parameters.filter { it.kind == ParameterKind.PROMPT || it.kind == ParameterKind.NEGATIVE }, key = { it.id }) { p ->
+            items(workflow.injectionTexts(), key = { it.id }) { p ->
                 PopTextField(p.value, { repository.editParameter(workflow.id, p.id, value = it) },
-                    modifier = Modifier.padding(horizontal = 16.dp), label = p.label, minLines = if (p.kind == ParameterKind.PROMPT) 4 else 2, maxLines = 10)
+                    modifier = Modifier.padding(horizontal = 16.dp), label = p.label,
+                    minLines = if (p.kind == ParameterKind.NEGATIVE) 2 else 4, maxLines = 10)
             }
             items(workflow.parameters.filter { it.kind == ParameterKind.IMAGE }, key = { it.id }) { p ->
                 ArkInkPanel(Modifier.padding(horizontal = 16.dp)) {
@@ -178,9 +187,10 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                         Text("生成参数", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                         TextButton(onClick = { paramsOpen = !paramsOpen }) { Text(if (paramsOpen) "收起" else "展开") }
                     }
-                    if (workflow.parameters.isEmpty()) Text("按工作流原值运行。可在工作流编辑页添加参数绑定。", style = MaterialTheme.typography.bodySmall)
+                    if (workflow.parameters.isEmpty()) Text("这次只改图和提示词。步数、CFG 等按工作流原值运行，需要时再到工作流编辑页添加。", style = MaterialTheme.typography.bodySmall)
+                    val primary = workflow.injectionTexts() + workflow.parameters.filter { it.kind == ParameterKind.IMAGE }
                     if (paramsOpen) {
-                        workflow.parameters.filter { it.kind !in setOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE, ParameterKind.IMAGE) }.forEach { p ->
+                        workflow.parameters.filter { it !in primary }.forEach { p ->
                             val target = p.targets.firstOrNull()
                             val type = target?.let { workflow.graph.getAsJsonObject(it.nodeId).get("class_type").asString }
                             val definition = schema[type]?.getAsJsonObject("input")?.let { fields ->

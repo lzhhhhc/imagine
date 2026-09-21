@@ -82,7 +82,6 @@ object ComfyWorkflowEngine {
             val (id, node) = samplers.single()
             val inputs = node.asJsonObject.getAsJsonObject("inputs")
             add(ParameterKind.SEED, id, if (inputs.has("seed")) "seed" else "noise_seed")
-            add(ParameterKind.STEPS, id, "steps"); add(ParameterKind.CFG, id, "cfg")
             for ((linkName, kind) in listOf("positive" to ParameterKind.PROMPT, "negative" to ParameterKind.NEGATIVE)) {
                 val link = inputs.get(linkName)
                 if (link?.isJsonArray == true && link.asJsonArray.size() == 2) {
@@ -91,12 +90,13 @@ object ComfyWorkflowEngine {
                 }
             }
         }
-        val latents = graph.entrySet().filter { it.value.asJsonObject.get("class_type").asString in setOf("EmptyLatentImage", "EmptySD3LatentImage", "EmptyFlux2LatentImage") }
-        if (latents.size == 1) {
-            val id = latents.single().key
-            add(ParameterKind.WIDTH, id, "width"); add(ParameterKind.HEIGHT, id, "height"); add(ParameterKind.BATCH, id, "batch_size")
+        // Steps, CFG, size and batch stay at the workflow's own values. The injection that actually
+        // changes per run is the reference image and the prompt, so those are the only suggestions.
+        val loaders = graph.entrySet().filter { (id, element) ->
+            element.asJsonObject.get("class_type").asString == "LoadImage" &&
+                graph.getAsJsonObject(id).getAsJsonObject("inputs").get("image")?.isJsonPrimitive == true
         }
-        // Reference-image binding is intentionally manual: never guess which LoadImage node the user means.
+        if (loaders.size == 1) add(ParameterKind.IMAGE, loaders.single().key, "image")
         return params.sortedBy { it.kind.ordinal }
     }
 

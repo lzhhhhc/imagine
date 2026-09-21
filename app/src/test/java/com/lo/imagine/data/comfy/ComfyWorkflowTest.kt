@@ -23,7 +23,7 @@ internal fun sampleWorkflow(): ComfyWorkflow = sampleGraph().let {
 class ComfyWorkflowTest {
     @Test fun `standard workflow suggests direct prompt links and preserves original graph`() {
         val w = sampleWorkflow()
-        assertEquals(8, w.parameters.size)
+        assertEquals(listOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE, ParameterKind.SEED), w.parameters.map { it.kind })
         assertEquals(InputTarget("2", "text"), w.parameters.first { it.kind == ParameterKind.PROMPT }.targets.single())
         val copy = w.copy(parameters = w.parameters.map { if (it.kind == ParameterKind.PROMPT) it.copy(value = "a blue vase\n\"on a table\"") else it })
         val prepared = ComfyWorkflowEngine.prepare(copy)
@@ -93,7 +93,8 @@ class ComfyWorkflowTest {
             getAsJsonObject("5").getAsJsonObject("inputs").addProperty("cfg", 7)
             getAsJsonObject("5").getAsJsonObject("inputs").addProperty("denoise", 1)
         }
-        val parameters = ComfyWorkflowEngine.suggest(graph).map { if (it.kind == ParameterKind.CFG) it.copy(value = "6.5") else it } +
+        val parameters = ComfyWorkflowEngine.suggest(graph) +
+            WorkflowParameter(label = "CFG", kind = ParameterKind.CFG, targets = listOf(InputTarget("5", "cfg")), value = "6.5") +
             WorkflowParameter(label = "Denoise", targets = listOf(InputTarget("5", "denoise")), value = "0.75")
         val inputs = ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = parameters, outputNodes = listOf("7"))).graph.getAsJsonObject("5").getAsJsonObject("inputs")
         assertEquals("6.5", inputs.get("cfg").asString)
@@ -120,6 +121,15 @@ class ComfyWorkflowTest {
         assertThrows(IllegalArgumentException::class.java) {
             ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = listOf(loader.copy(value = "")), outputNodes = listOf("1")))
         }
+    }
+    @Test fun `a single load image is suggested and several are left for the user`() {
+        val one = sampleGraph().apply { add("8", JsonParser.parseString("""{"class_type":"LoadImage","inputs":{"image":"ref.png"}}""")) }
+        val suggested = ComfyWorkflowEngine.suggest(one)
+        assertEquals(InputTarget("8", "image"), suggested.single { it.kind == ParameterKind.IMAGE }.targets.single())
+        assertEquals("ref.png", suggested.single { it.kind == ParameterKind.IMAGE }.value)
+        val two = one.deepCopy().apply { add("9", get("8").deepCopy()) }
+        assertTrue(ComfyWorkflowEngine.suggest(two).none { it.kind == ParameterKind.IMAGE })
+        assertTrue(suggested.none { it.kind in setOf(ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.WIDTH, ParameterKind.BATCH) })
     }
     @Test fun `subfolder reference image values are preserved for later uploads`() {
         assertEquals("sub/图片 空格.png", UploadedImage("图片 空格.png", "sub").inputValue)

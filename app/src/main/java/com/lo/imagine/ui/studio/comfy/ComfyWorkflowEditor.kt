@@ -142,12 +142,16 @@ internal fun ComfyWorkflowEditor(initial: ComfyWorkflow, repository: ComfyReposi
     var targets by remember { mutableStateOf<List<InputTarget>>(emptyList()) }
     var search by remember { mutableStateOf("") }
     var showAllOutputs by remember { mutableStateOf(false) }
+    var showSampling by remember { mutableStateOf(false) }
     val scalars = remember(initial.graph) { ComfyWorkflowEngine.scalars(initial.graph) }
     val scope = rememberCoroutineScope()
     ComfyDialog("核对工作流", onDismiss) {
         PopTextField(workflow.name, { workflow = workflow.copy(name = it) }, label = "工作流名称", singleLine = true)
-        Text("${workflow.graph.size()} 个节点。下面的绑定决定哪些输入会出现在生成页面。", style = MaterialTheme.typography.bodySmall)
-        workflow.parameters.forEach { p ->
+        Text("${workflow.graph.size()} 个节点。生成页默认只露出参考图和提示词，步数、CFG 等留在工作流原值。", style = MaterialTheme.typography.bodySmall)
+        val sampling = setOf(ParameterKind.SEED, ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.WIDTH, ParameterKind.HEIGHT, ParameterKind.BATCH)
+        val injection = workflow.parameters.filter { it.kind !in sampling }
+        val advanced = workflow.parameters.filter { it.kind in sampling }
+        injection.forEach { p ->
             ArkInkPanel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(p.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
@@ -164,6 +168,25 @@ internal fun ComfyWorkflowEditor(initial: ComfyWorkflow, repository: ComfyReposi
                     if (convertible) TextButton(onClick = {
                         workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(kind = ParameterKind.IMAGE) else it })
                     }) { Text("改为参考图片（手机选图上传）") }
+                    val textTarget = p.kind == ParameterKind.CUSTOM && p.targets.isNotEmpty() && p.targets.all { target ->
+                        workflow.graph.getAsJsonObject(target.nodeId)?.get("class_type")?.asString == "CLIPTextEncode" && target.input == "text"
+                    }
+                    if (textTarget) TextButton(onClick = {
+                        workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(kind = ParameterKind.PROMPT, label = if (it.label == ParameterKind.CUSTOM.label) ParameterKind.PROMPT.label else it.label) else it })
+                    }) { Text("改为主提示词") }
+                }
+            }
+        }
+        if (advanced.isNotEmpty()) {
+            TextButton(onClick = { showSampling = !showSampling }) { Text(if (showSampling) "收起采样参数" else "采样参数（步数、CFG 等 ${advanced.size} 项，平时不用动）") }
+            if (showSampling) advanced.forEach { p ->
+                ArkInkPanel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(p.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = { workflow = workflow.copy(parameters = workflow.parameters.filterNot { it.id == p.id }) }) { Text("移除") }
+                    }
+                    Text(p.targets.joinToString { it.key }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    PopTextField(p.value, { text -> workflow = workflow.copy(parameters = workflow.parameters.map { if (it.id == p.id) it.copy(value = text) else it }) }, label = "初始值", singleLine = true)
                 }
             }
         }

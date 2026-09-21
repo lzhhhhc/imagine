@@ -168,7 +168,7 @@ class ComfyTaskTest {
     @Test fun `invalid numeric draft survives reopening so it can be corrected`() = runBlocking {
         val directory = temp.newFolder(); val repo = repository(directory)
         val workflow = repo.state.value.selected!!
-        val parameter = workflow.parameters.first { it.kind == ParameterKind.STEPS }
+        val parameter = workflow.parameters.first { it.kind == ParameterKind.SEED }
         repo.editParameter(workflow.id, parameter.id, value = "")
         repo.flushDraft()
         val reopened = ComfyRepository(store(directory)); ready(reopened)

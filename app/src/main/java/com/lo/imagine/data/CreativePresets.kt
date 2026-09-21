@@ -242,6 +242,24 @@ val ASPECT_OPTIONS = listOf(
     AspectOption("21:9", 21f, 9f)
 )
 
+/**
+ * 修图输出尺寸：第一次选图跟随原图并锁定；
+ * 已经锁定后（换图、加图、继续修、或用户改过画幅/画质）保留当前选择。
+ */
+data class EditOutputSelection(val aspectLabel: String, val size: String, val locked: Boolean)
+
+fun retainEditOutput(
+    locked: Boolean,
+    currentAspect: String,
+    currentSize: String,
+    matched: AspectOption,
+    longEdge: Int
+): EditOutputSelection = if (locked) {
+    EditOutputSelection(currentAspect, currentSize, true)
+} else {
+    EditOutputSelection(matched.label, matched.sizeFor(longEdge), true)
+}
+
 /** 根据原图宽高匹配最接近的画幅选项，用于修图时读取图片画幅 */
 fun matchAspect(width: Int, height: Int): AspectOption {
     if (width <= 0 || height <= 0) return ASPECT_OPTIONS.first()

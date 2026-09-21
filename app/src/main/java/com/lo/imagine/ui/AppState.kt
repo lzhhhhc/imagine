@@ -9,6 +9,7 @@ import com.lo.imagine.data.AspectOption
 import com.lo.imagine.data.ImageData
 import com.lo.imagine.data.QUALITY_TIERS
 import com.lo.imagine.data.matchAspect
+import com.lo.imagine.data.retainEditOutput
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -95,6 +96,12 @@ object EditState {
     /** 修图一次出几张（1/2/4） */
     var count by mutableIntStateOf(1)
     var round by mutableIntStateOf(0)
+    /**
+     * 输出尺寸一旦被定下来就不再跟着新图走。
+     * 第一次选图会按原图设一次；之后换图、加图、继续修，都保留画幅和画质。
+     * 画幅/画质下拉改动也会锁住。清空参考图后重新放开。
+     */
+    var outputSizeLocked by mutableStateOf(false)
 
     /** 原图画幅（选图后自动识别） */
     var sourceAspect by mutableStateOf<String?>(null)
@@ -132,8 +139,11 @@ object EditState {
         val matched = matchAspect(bitmap.width, bitmap.height)
         sourceAspect = matched.label
         sourceSize = matched.size
-        aspectLabel = matched.label // 输出画幅默认跟随原图
-        size = sizeFor(matched)
+        val quality = QUALITY_TIERS.firstOrNull { it.id == qualityId } ?: QUALITY_TIERS[1]
+        val kept = retainEditOutput(outputSizeLocked, aspectLabel, size, matched, quality.longEdge)
+        aspectLabel = kept.aspectLabel
+        size = kept.size
+        outputSizeLocked = kept.locked
         maskBitmap = null
         results = emptyList()
         error = null
@@ -151,6 +161,7 @@ object EditState {
         sourceBytes = null
         sourceAspect = null
         sourceSize = null
+        outputSizeLocked = false
         maskBitmap = null
         results = emptyList()
         error = null

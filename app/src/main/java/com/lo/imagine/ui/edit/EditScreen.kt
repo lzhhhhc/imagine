@@ -822,6 +822,7 @@ fun EditScreen(
                                     val quality = QUALITY_TIERS.firstOrNull { it.id == EditState.qualityId }
                                         ?: QUALITY_TIERS[1]
                                     EditState.size = picked.sizeFor(quality.longEdge)
+                                    EditState.outputSizeLocked = true
                                 }
                             }
                         )
@@ -838,6 +839,7 @@ fun EditScreen(
                                     val aspect = ASPECT_OPTIONS.firstOrNull { it.label == EditState.aspectLabel }
                                         ?: ASPECT_OPTIONS.first()
                                     EditState.size = aspect.sizeFor(tier.longEdge)
+                                    EditState.outputSizeLocked = true
                                 }
                             }
                         )

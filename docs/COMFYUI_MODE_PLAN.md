@@ -550,3 +550,14 @@ GitHub 发布受阻：此前聊天中出现过的 GitHub 凭据已视为泄露�
 - 不自动猜测 LoadImage 节点：suggest() 不为 IMAGE 生成建议，绑定一律由用户在编辑器里显式选择（沿用「歧义不自动选择」原则）。
 
 验证：`:app:assembleDebug :app:testDebugUnitTest` 通过，229 项测试（新增 5 项覆盖 multipart 请求格式、单次发送、坏响应拒绝、本地文件预检、IMAGE 绑定校验、UploadedImage 路径安全），0 失败 0 错误，1 项 opt-in 联调跳过。
+
+### 14.7 v1.6 参数面板崩溃修复
+
+用户反馈 v1.5 使用中「闪退好几次」。系统崩溃日志（logcat crash buffer）显示同类异常共 4 次，全部落在同一处：参数面板对服务器节点定义中的「可选值列表」逐个取字符串时，遇到列表混入非文本条目（对象/嵌套/null）抛 `UnsupportedOperationException`，主线程退出。该路径自 v1.2 就存在（v1.4 时代的一次崩溃为同一处旧行号），并非本次上传功能引入。
+
+修复：
+- 新增 `ComfyWorkflowEngine.comboOptions`：仅当定义是纯标量列表时返回选项；混入复杂条目时返回 null，参数面板回退为手动输入框，不再崩溃。
+- `validateWithInfo` 对这类复杂列表不再执行「不在服务器可选值中」的本地判定（无法可靠比较），交由服务器最终校验；纯文本列表仍保持严格校验。
+- 工作台中，若参数绑定到 LoadImage.image 但用途不是「参考图片」，显示一行提示，引导到编辑页改用途以获得手机选图上传。
+
+验证：`:app:assembleDebug :app:testDebugUnitTest` 231 项，0 失败 0 错误，1 项 opt-in 联调跳过；新增 2 项回归用例（复杂条目回退、复杂列表不阻断校验且纯列表仍严格）。

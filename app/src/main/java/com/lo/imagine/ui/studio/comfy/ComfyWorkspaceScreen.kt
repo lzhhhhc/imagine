@@ -186,9 +186,12 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                             val definition = schema[type]?.getAsJsonObject("input")?.let { fields ->
                                 fields.getAsJsonObject("required")?.get(target?.input) ?: fields.getAsJsonObject("optional")?.get(target?.input)
                             }?.takeIf { it.isJsonArray }?.asJsonArray
-                            val options = definition?.firstOrNull()?.takeIf { it.isJsonArray }?.asJsonArray?.map { it.asString }
+                            val options = ComfyWorkflowEngine.comboOptions(definition?.firstOrNull())
                             if (options != null) ComfyChoice(p.label, p.value, options) { repository.editParameter(workflow.id, p.id, value = it) }
                             else PopTextField(p.value, { repository.editParameter(workflow.id, p.id, value = it) }, label = p.label, singleLine = true, enabled = !p.randomSeed)
+                            if (type == "LoadImage" && target?.input == "image") Text(
+                                "如需从手机选图上传，请在编辑页把此参数用途改为「参考图片」。",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (p.kind == ParameterKind.SEED) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(p.randomSeed, onCheckedChange = { repository.editParameter(workflow.id, p.id, random = it) })
                                 Text("每次使用随机种子", style = MaterialTheme.typography.bodySmall)

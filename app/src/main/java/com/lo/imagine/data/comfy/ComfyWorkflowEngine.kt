@@ -61,6 +61,14 @@ object ComfyWorkflowEngine {
         }
     }
 
+    /** Combo values for the parameter form. Returns null unless the definition is a plain primitive
+     *  list, so exotic server entries (objects, nested values, null) fall back to a free-text field. */
+    fun comboOptions(definition: JsonElement?): List<String>? {
+        val array = definition?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        if (array.size() == 0 || array.any { !it.isJsonPrimitive }) return null
+        return array.map { it.asString }
+    }
+
     /** Suggestions only: no traversal through unknown conditioning transforms, no first-node guessing. */
     fun suggest(graph: JsonObject): List<WorkflowParameter> {
         val params = mutableListOf<WorkflowParameter>()
@@ -165,7 +173,11 @@ object ComfyWorkflowEngine {
                 if (definition.size() == 0) return@field
                 if (definition[0].isJsonArray) {
                     val options = definition[0].asJsonArray
-                    require(options.any { it == value }) { "节点 $id 的 $key 不在服务器可选值中：${value.asString.take(100)}" }
+                    // Membership is enforced only for plain primitive lists; exotic entries cannot be
+                    // compared reliably (the form already falls back to free text), so the server decides.
+                    if (options.all { it.isJsonPrimitive }) {
+                        require(options.any { it == value }) { "节点 $id 的 $key 不在服务器可选值中：${value.asString.take(100)}" }
+                    }
                 } else if (definition[0].isJsonPrimitive) {
                     when (definition[0].asString) {
                         "INT", "FLOAT" -> {

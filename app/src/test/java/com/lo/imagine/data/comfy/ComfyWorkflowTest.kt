@@ -127,6 +127,22 @@ class ComfyWorkflowTest {
         assertThrows(IllegalArgumentException::class.java) { UploadedImage("../evil.png") }
         assertThrows(IllegalArgumentException::class.java) { UploadedImage("a.png", type = "temp") }
     }
+    @Test fun `combo options fall back instead of crashing on exotic server entries`() {
+        assertEquals(listOf("euler", "dpmpp_2m"), ComfyWorkflowEngine.comboOptions(JsonParser.parseString("""["euler","dpmpp_2m"]""")))
+        assertNull(ComfyWorkflowEngine.comboOptions(JsonParser.parseString("""["euler",{"name":"x"}]""")))
+        assertNull(ComfyWorkflowEngine.comboOptions(JsonParser.parseString("""[{"name":"x"}]""")))
+        assertNull(ComfyWorkflowEngine.comboOptions(JsonParser.parseString("[]")))
+        assertNull(ComfyWorkflowEngine.comboOptions(JsonParser.parseString(""""INT"""")))
+        assertNull(ComfyWorkflowEngine.comboOptions(JsonParser.parseString("""[["nested"]]""")))
+        assertNull(ComfyWorkflowEngine.comboOptions(null))
+    }
+    @Test fun `exotic combo lists do not block validation while plain lists stay strict`() {
+        val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"Custom","inputs":{"model":"weird"}}}""")
+        val exotic = JsonParser.parseString("""{"input":{"required":{"model":[[{"name":"weird"}]]}}}""").asJsonObject
+        ComfyWorkflowEngine.validateWithInfo(graph, mapOf("Custom" to exotic))
+        val plain = JsonParser.parseString("""{"input":{"required":{"model":[["available"]]}}}""").asJsonObject
+        assertThrows(IllegalArgumentException::class.java) { ComfyWorkflowEngine.validateWithInfo(graph, mapOf("Custom" to plain)) }
+    }
     @Test fun `server choices and numeric bounds are respected`() {
         val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"Custom","inputs":{"model":"missing","steps":2}}}""")
         val schema = JsonParser.parseString("""{"input":{"required":{"model":[["available"]],"steps":["INT",{"min":1,"max":10}]}}}""").asJsonObject

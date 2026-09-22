@@ -12,6 +12,12 @@ Official favicon: https://lf3-static.bytednsdoc.com/obj/eden-cn/lapzild-tss/ljhw
 Grok: symbol paths downloaded from https://grok.com/ navbar SVG.
 Kling: symbol downloaded from https://klingai.com/ navbar SVG.
 
+Studio mode marks (GPT / NAI / ComfyUI), downloaded from LobeHub Icons:
+https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-svg/icons/openai.svg
+https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-svg/icons/novelai.svg
+https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-svg/icons/comfyui.svg
+Official brands: https://openai.com/  https://novelai.net/  https://www.comfy.org/
+
 Only brand symbols are displayed. Path geometry and proportions are preserved.
 These marks identify their respective prompt targets; all brand rights belong
 to their respective owners. No affiliation or endorsement is implied.

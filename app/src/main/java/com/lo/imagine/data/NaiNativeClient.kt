@@ -157,10 +157,52 @@ fun applyNaiReplace(text: String, rules: List<Pair<String, String>>): String =
  * 否则与全局人数冲突、角色特征被稀释（st-chatu8 生产环境同样处理）。
  */
 internal fun naiCharacterFieldCaption(card: NaiCharacterPrompt): String {
-    // 有 LLM 场景融合版时优先使用（按场景取景推理的产物），否则退回机械拼接版
-    val base = card.fusedCaption.ifBlank { card.caption }
+    // 有 LLM 场景融合版时优先使用（按场景取景推理的产物），否则退回机械拼接版。
+    // 统一 trim，避免返回空白融合段时被误判为有效角色。
+    val base = card.fusedCaption.trim().ifBlank { card.caption.trim() }
     return base.replace("1girl", "girl", ignoreCase = true)
         .replace("1boy", "boy", ignoreCase = true)
+        .trim()
+}
+
+/** 请求与预览共用的角色筛选：必须启用，且最终角色段非空。 */
+internal fun activeNaiCharacterCards(c: NaiWorkspaceConfig): List<NaiCharacterPrompt> =
+    c.characterCards.filter { it.enabled && naiCharacterFieldCaption(it).isNotBlank() }
+
+/** 融合输入的角色集合：机械拼接 caption 非空的启用角色（融合就是要替换这个 caption 的产物）。 */
+internal fun fuseEnabledIndices(c: NaiWorkspaceConfig): List<Int> =
+    c.characterCards.indices.filter { i -> c.characterCards[i].enabled && c.characterCards[i].caption.isNotBlank() }
+
+/**
+ * 把 LLM 融合输出按位置对回启用角色。
+ * 空段也必须占位：过滤空段会让后面的段落错位写到别的角色上。
+ * 段数与启用角色数不一致时返回 null——错位写入比直接失败更糟。
+ */
+internal fun mapFusedSegments(raw: String, enabledCount: Int): List<String>? {
+    val segments = raw.split("|").map { it.trim() }
+    return if (segments.size == enabledCount) segments else null
+}
+
+/**
+ * 融合完成时的对账写入：只有「画面提示词 + 角色资料」与发起融合时一致才写入。
+ * 任务等待期间用户可能继续编辑；用旧快照整体覆盖会吞掉这些编辑。
+ * 返回 null 表示来源已变化，调用方应放弃写入并提示重新融合。
+ */
+internal fun applyFusedCaptions(
+    snapshot: NaiWorkspaceConfig,
+    current: NaiWorkspaceConfig,
+    segments: List<String>
+): NaiWorkspaceConfig? {
+    val sourceUnchanged = snapshot.prompt == current.prompt &&
+        snapshot.characterCards.map { it.copy(fusedCaption = "") } ==
+            current.characterCards.map { it.copy(fusedCaption = "") }
+    if (!sourceUnchanged) return null
+    val indices = fuseEnabledIndices(current)
+    if (indices.size != segments.size) return null
+    return current.copy(characterCards = current.characterCards.mapIndexed { i, card ->
+        val seg = indices.indexOf(i)
+        if (seg >= 0) card.copy(fusedCaption = segments[seg]) else card
+    })
 }
 
 fun naiNativePayload(c: NaiWorkspaceConfig, actualSeed: Long): Map<String, Any?> {
@@ -188,7 +230,7 @@ fun naiNativePayload(c: NaiWorkspaceConfig, actualSeed: Long): Map<String, Any?>
     val body = (if (c.furryDataset) "fur dataset, " else "") +
         listOf(prefix, mainPrompt, suffix).map(String::trim).filter(String::isNotEmpty).joinToString(", ")
     val assembled = assembleNaiPrompt(body, artists, userNegative, STYLE_PRESETS.first(), profile, options)
-    val chars = c.characterCards.filter { it.enabled && it.caption.isNotBlank() }
+    val chars = activeNaiCharacterCards(c)
     require(chars.size <= 6) { "角色最多 6 个" }
     // 多角色字段 caption：去掉 1girl/1boy（人数词只属于 base_caption，见 naiCharacterFieldCaption）
     val errors = assembled.errors + chars.flatMap { naiSyntaxErrors(naiCharacterFieldCaption(it)) + naiSyntaxErrors(it.negative) }
@@ -229,7 +271,7 @@ fun naiNativePayload(c: NaiWorkspaceConfig, actualSeed: Long): Map<String, Any?>
  * 预览页与作品库若只存 input 会看不到角色部分——这里补齐，与真实请求内容对齐。
  */
 fun naiDisplayPrompt(c: NaiWorkspaceConfig, input: String): String {
-    val chars = c.characterCards.filter { it.enabled && it.caption.isNotBlank() }
+    val chars = activeNaiCharacterCards(c)
     if (chars.isEmpty()) return input
     // 与请求组装同源：去掉人数词，保证「作品里看到的」=「实际发出的」
     return input + chars.joinToString("") { " | " + naiCharacterFieldCaption(it) }

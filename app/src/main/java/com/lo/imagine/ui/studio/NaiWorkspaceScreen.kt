@@ -203,7 +203,17 @@ fun NaiWorkspaceScreen(
     var naiPresets by remember { mutableStateOf<List<CustomPreset>>(emptyList()) }
     var activeNaiPresetName by remember { mutableStateOf<String?>(null) }
 
-    fun update(value: NaiWorkspaceConfig) { NaiWorkspaceState.config = value }
+    fun update(value: NaiWorkspaceConfig) {
+        val old = NaiWorkspaceState.config
+        // 融合结果只对生成它时的场景有效。画面提示或角色资料变化后，必须让旧 fusedCaption 失效，
+        // 否则界面已经改了角色，实际请求却仍偷偷使用上一轮 LLM 结果。
+        val oldSources = old.characterCards.map { it.copy(fusedCaption = "") }
+        val newSources = value.characterCards.map { it.copy(fusedCaption = "") }
+        val sourceChanged = old.prompt != value.prompt || oldSources != newSources
+        NaiWorkspaceState.config = if (sourceChanged) {
+            value.copy(characterCards = value.characterCards.map { it.copy(fusedCaption = "") })
+        } else value
+    }
 
     // 预设：与首页共用同一份保存列表，但 NAI 通道单独记「当前选中」，互不影响
     LaunchedEffect(Unit) {
@@ -312,31 +322,30 @@ fun NaiWorkspaceScreen(
      */
     fun runFuse() {
         val live = NaiWorkspaceState.config
-        val enabledCount = live.characterCards.count { it.enabled && it.caption.isNotBlank() }
-        if (enabledCount == 0) { NaiWorkspaceState.error = "先启用至少一个角色"; return }
+        val enabledIndices = fuseEnabledIndices(live)
+        if (enabledIndices.isEmpty()) { NaiWorkspaceState.error = "先启用至少一个角色"; return }
         if (live.prompt.isBlank()) { NaiWorkspaceState.error = "先写画面提示词再融合"; return }
+        val snapshot = live
         NaiWorkspaceState.runTask {
             NaiWorkspaceState.stage = "融合中 · ${settings.llmModel.ifBlank { "未配置 LLM" }}"
-            client.fuseCharacters(live, settings, live.prompt).fold({ fused ->
-                // 按 | 切段：一段对一个启用角色（顺序与请求组装一致——过滤后按原序）
-                val segments = fused.split("|").map { it.trim() }.filter { it.isNotBlank() }
-                if (segments.isEmpty()) {
-                    NaiWorkspaceState.error = "融合返回空内容"
+            client.fuseCharacters(snapshot, settings, snapshot.prompt).fold({ fused ->
+                // 空段也占位对齐角色；段数不一致就整体放弃，不能把第 2 段写进别的角色。
+                val segments = mapFusedSegments(fused, enabledIndices.size)
+                if (segments == null) {
+                    NaiWorkspaceState.error = "融合返回 ${fused.split("|").size} 段，与 ${enabledIndices.size} 个启用角色不一致，请重试"
                     return@fold
                 }
-                val enabledIndices = live.characterCards.indices.filter { i ->
-                    val card = live.characterCards[i]
-                    card.enabled && card.caption.isNotBlank()
+                // 对账写入：等待期间改了画面或角色资料就放弃，避免旧快照覆盖用户编辑。
+                val merged = applyFusedCaptions(snapshot, NaiWorkspaceState.config, segments)
+                if (merged == null) {
+                    NaiWorkspaceState.error = "融合期间画面或角色已修改，结果已丢弃；请重新融合"
+                    return@fold
                 }
-                val updated = live.characterCards.mapIndexed { i, card ->
-                    val segIdx = enabledIndices.indexOf(i)
-                    if (segIdx >= 0 && segIdx < segments.size) card.copy(fusedCaption = segments[segIdx]) else card
-                }
-                update(live.copy(characterCards = updated))
+                update(merged)
                 NaiWorkspaceState.error = null
                 android.widget.Toast.makeText(
                     context,
-                    "融合完成：$enabledCount 个角色的场景标签已生成（生成时优先使用）",
+                    "融合完成：${enabledIndices.size} 个角色的场景标签已生成（生成时优先使用）",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             }, { NaiWorkspaceState.error = it.message })

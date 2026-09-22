@@ -59,7 +59,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 /** NAI 会话里的一张图（内存态；落盘仍走作品库 / 系统相册，与首页一致）。 */
-data class NaiShot(val bitmap: Bitmap, val prompt: String, val model: String, val sizeNote: String)
+data class NaiShot(
+    val bitmap: Bitmap,
+    val prompt: String,
+    val model: String,
+    val sizeNote: String,
+    /** 本次结果完成解码的时间；内存态结果也要和作品库一样能追溯生成时间。 */
+    val createdAt: Long = System.currentTimeMillis()
+)
 
 object NaiWorkspaceState {
     var config by mutableStateOf(NaiWorkspaceConfig())
@@ -937,7 +944,8 @@ fun NaiWorkspaceScreen(
                                             bitmap = bitmap,
                                             prompt = NaiWorkspaceState.resultPrompt,
                                             model = c.model,
-                                            sizeNote = "${bitmap.width}x${bitmap.height}"
+                                            sizeNote = "${bitmap.width}x${bitmap.height}",
+                                            createdAt = System.currentTimeMillis()
                                         )
                                     )
                                     // 与普通模式同一条落盘链：作品库 + 系统相册；落盘走 IO 且限时，卡住也不占用等待态
@@ -1045,6 +1053,7 @@ fun NaiWorkspaceScreen(
                                     aspectRatio = .8f,
                                     selecting = selecting,
                                     selected = isPicked,
+                                    footerText = "NAI  //  ${ImageUtils.formatTimestamp(shot.createdAt)}",
                                     cornerBadge = if (selecting) null else "${index + 1}",
                                     animationDelayMs = index * 70,
                                     onClick = {

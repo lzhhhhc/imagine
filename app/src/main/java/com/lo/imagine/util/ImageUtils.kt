@@ -36,9 +36,9 @@ object ImageUtils {
 
     private val gson = Gson()
 
-    /** 历史时间戳 → MM-dd HH:mm，预览页角标展示 */
+    /** 生成记录时间戳 → MM-dd HH:mm，结果卡与预览页角标展示 */
     fun formatTimestamp(ts: Long): String =
-        java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        if (ts <= 0L) "" else java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date(ts))
 
     /** 生成耗时 → 「用时 32s」/「用时 1分12秒」 */

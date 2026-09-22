@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -92,6 +93,9 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
     var workflowsOpen by rememberSaveable { mutableStateOf(false) }
     var paramsOpen by rememberSaveable { mutableStateOf(false) }
     var jobDetails by remember { mutableStateOf<ComfyJob?>(null) }
+    /** 任务记录保留用于恢复，但默认只展开最新一条，避免每次生成都把图片继续铺到页面底部。 */
+    var expandedJobId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showJobHistory by rememberSaveable { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var schema by remember { mutableStateOf<Map<String, JsonObject>>(emptyMap()) }
     var checkedFor by remember { mutableStateOf<String?>(null) }
@@ -99,7 +103,13 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
     var previewing by remember { mutableStateOf(false) }
     val workflow = state.selected
     val fingerprint = "${state.connection.fingerprint()}/${workflow?.id}/${workflow?.updatedAt}"
+    val latestJobId = state.jobs.firstOrNull()?.id
     LaunchedEffect(fingerprint) { schema = emptyMap(); checkedFor = null }
+    // 新任务出现时只自动展开最新一条；旧任务仍保留在记录中，但不再把图片全部铺开。
+    LaunchedEffect(latestJobId) {
+        expandedJobId = latestJobId
+        showJobHistory = false
+    }
     LaunchedEffect(state.busy) { if (state.busy) while (true) { now = System.currentTimeMillis(); delay(1000) } }
     fun preview(path: String) {
         if (previewing) return
@@ -235,15 +245,61 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                 }
             }
         }
-        if (state.jobs.isNotEmpty()) item { RefSectionHeading("任务与结果", "WORKFLOW RESULTS", Modifier.padding(horizontal = 16.dp)) }
-        items(state.jobs, key = { it.id }) { job ->
+        if (state.jobs.isNotEmpty()) {
+            item {
+                Row(
+                    Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RefSectionHeading("任务与结果", "WORKFLOW RESULTS", Modifier.weight(1f))
+                    if (state.jobs.size > 1) {
+                        TextButton(onClick = { showJobHistory = !showJobHistory }) {
+                            Text(if (showJobHistory) "收起历史" else "历史 ${state.jobs.size - 1}")
+                        }
+                    }
+                }
+            }
+        }
+        items(if (showJobHistory) state.jobs else state.jobs.take(1), key = { it.id }) { job ->
+            val expanded = expandedJobId == job.id
+            val savedPaths = job.saved.values.toList()
             ArkInkPanel(Modifier.padding(horizontal = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(job.workflowName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(job.phase.label, style = MaterialTheme.typography.labelMedium, color = if (job.phase == ComfyPhase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                    Column(
+                        modifier = Modifier.weight(1f).clickable {
+                            expandedJobId = if (expanded) null else job.id
+                        }
+                    ) {
+                        Text(job.workflowName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "COMFY  //  ${ImageUtils.formatTimestamp(job.startedAt)} · ${savedPaths.size} 张",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        job.phase.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (job.phase == ComfyPhase.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                    TextButton(onClick = { expandedJobId = if (expanded) null else job.id }) {
+                        Text(if (expanded) "收起" else "结果")
+                    }
                 }
-                if (state.busy && state.activeJobId == job.id) Text("已等待 ${((now - job.startedAt) / 1000).coerceAtLeast(0)} 秒", style = MaterialTheme.typography.bodySmall)
-                if (job.message.isNotBlank()) Text(job.message, style = MaterialTheme.typography.bodySmall)
+                if (state.busy && state.activeJobId == job.id) {
+                    Text("已等待 ${((now - job.startedAt) / 1000).coerceAtLeast(0)} 秒", style = MaterialTheme.typography.bodySmall)
+                }
+                if (job.message.isNotBlank()) {
+                    Text(
+                        job.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = if (expanded) 4 else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Row {
                     TextButton(onClick = { jobDetails = job }) { Text("参数") }
                     if (job.phase !in setOf(ComfyPhase.SUCCEEDED, ComfyPhase.REMOVED) || job.images.any { it.key !in job.saved }) {
@@ -253,16 +309,22 @@ fun ComfyWorkspaceScreen(settings: AppSettings, onSelectMode: (String) -> Unit, 
                         TextButton(onClick = { runtime.coordinator.removeQueued(job.id) }, enabled = !state.busy) { Text("移除排队") }
                     }
                 }
-                job.saved.values.toList().chunked(2).forEach { paths ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        paths.forEach { path ->
-                            Surface(shape = themedShape(PopRadius.card), modifier = Modifier.weight(1f).aspectRatio(1f).clickable { preview(path) }) {
+                if (expanded && savedPaths.isNotEmpty()) {
+                    // 结果只占固定高度的横向轨道；历史任务仍可展开查看，但不会把页面无限向下撑长。
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().height(156.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(vertical = 4.dp)
+                    ) {
+                        items(savedPaths) { path ->
+                            Surface(
+                                shape = themedShape(PopRadius.card),
+                                modifier = Modifier.size(148.dp).clickable { preview(path) }
+                            ) {
                                 AsyncImage(File(path), contentDescription = "查看生成图片", contentScale = ContentScale.Crop)
                             }
                         }
-                        if (paths.size == 1) Spacer(Modifier.weight(1f))
                     }
-                    Spacer(Modifier.height(8.dp))
                 }
             }
         }

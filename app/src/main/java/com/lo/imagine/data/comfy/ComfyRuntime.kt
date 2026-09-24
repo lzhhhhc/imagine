@@ -2,6 +2,7 @@ package com.lo.imagine.data.comfy
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -20,6 +21,32 @@ import java.io.FileOutputStream
 
 /** One owner shared by the workbench and settings. No Activity or Composable owns the task. */
 data class LocalComfyImage(val file: File, val filename: String)
+
+/** PNG, JPEG and WebP are the formats ComfyUI LoadImage reliably accepts. */
+internal fun comfyImageKind(header: ByteArray): String? {
+    if (header.size >= 8 && header[0] == 0x89.toByte() && header[1] == 0x50.toByte() &&
+        header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()) return "png"
+    if (header.size >= 3 && header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()) return "jpg"
+    if (header.size >= 12 && header.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+        header.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WEBP") return "webp"
+    return null
+}
+
+internal fun comfyUploadFilename(original: String, kind: String): String {
+    val base = original.substringAfterLast('/').substringAfterLast('\\')
+    val unsafe = base.any { it.isISOControl() || it == '"' || it == '\\' }
+    val cleaned = base.replace(Regex("""[\u0000-\u001F"\\]"""), "").trim()
+    val extension = cleaned.substringAfterLast('.', "")
+    val stem = (if (extension == cleaned) cleaned else cleaned.substringBeforeLast('.')).trim()
+    val accepted = if (kind == "jpg") setOf("jpg", "jpeg") else setOf(kind)
+    val suffix = if (kind == "jpg" && extension.equals("jpeg", ignoreCase = true)) "jpeg" else kind
+    val name = when {
+        unsafe || stem.none { it.isLetterOrDigit() } -> "reference.$suffix"
+        extension.lowercase() in accepted -> cleaned
+        else -> "$stem.$suffix"
+    }
+    return name.take(180)
+}
 
 suspend fun copyComfyImage(context: Context, uri: Uri): LocalComfyImage = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
@@ -55,7 +82,31 @@ suspend fun copyComfyImage(context: Context, uri: Uri): LocalComfyImage = withCo
             }
         }
         require(size > 0) { "图片文件为空" }
-        LocalComfyImage(target, filename)
+        val kind = target.inputStream().use { input ->
+            val header = ByteArray(16)
+            var read = 0
+            while (read < header.size) {
+                val count = input.read(header, read, header.size - read)
+                if (count < 0) break
+                read += count
+            }
+            comfyImageKind(header.copyOf(read))
+        }
+        if (kind != null) return@withContext LocalComfyImage(target, comfyUploadFilename(filename, kind))
+        val bitmap = BitmapFactory.decodeFile(target.path)
+            ?: error("这张图片 ComfyUI 不能直接读取，且无法转成 JPG。请另存为 JPG 或 PNG 后再上传")
+        val converted = File.createTempFile("comfy-upload-", ".jpg", context.cacheDir)
+        try {
+            FileOutputStream(converted).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            require(converted.length() > 0) { "图片转成 JPG 失败" }
+        } catch (e: Exception) {
+            converted.delete()
+            throw e
+        } finally {
+            bitmap.recycle()
+            target.delete()
+        }
+        LocalComfyImage(converted, comfyUploadFilename(filename, "jpg"))
     } catch (e: Exception) {
         target.delete()
         throw e

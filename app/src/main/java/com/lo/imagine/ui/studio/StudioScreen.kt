@@ -1128,7 +1128,7 @@ internal fun StudioPromptAction(
         enabled = enabled,
         shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
         color = if (accent) LocalPopAccents.current.a else MaterialTheme.colorScheme.surface,
-        contentColor = if (accent) com.lo.imagine.ui.theme.Ink else MaterialTheme.colorScheme.onSurfaceVariant,
+        contentColor = if (accent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
         tonalElevation = if (accent) 1.dp else 0.dp,
         border = BorderStroke(
             1.dp,
@@ -1333,7 +1333,7 @@ private fun StylePickerDialog(
                             ) {
                                 Surface(
                                     color = if (selected) LocalPopAccents.current.a else MaterialTheme.colorScheme.surface,
-                                    contentColor = if (selected) com.lo.imagine.ui.theme.Ink else MaterialTheme.colorScheme.primary,
+                                    contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
                                     shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
                                     border = BorderStroke(1.dp, if (selected) com.lo.imagine.ui.theme.Ink else MaterialTheme.colorScheme.outlineVariant),
                                     modifier = Modifier.size(34.dp)

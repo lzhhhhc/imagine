@@ -1,7 +1,6 @@
 package com.lo.imagine.ui.director
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,6 +20,7 @@ import coil.compose.AsyncImage
 import com.lo.imagine.data.DirectorAsset
 import com.lo.imagine.data.DirectorShot
 import com.lo.imagine.ui.*
+import com.lo.imagine.ui.ArkGlassCard
 import com.lo.imagine.ui.theme.PopRadius
 import com.lo.imagine.ui.theme.themedShape
 import java.io.File
@@ -62,8 +62,7 @@ internal fun DirectorStoryboardDialog(
                         DirectorSummaryCard("从一个镜头开始", "完成导演访谈后，分镜会自动写入这里。也可以点「＋分镜」自行编写，再核对图片与参数开始制作。")
                     }
                     itemsIndexed(shots, key = { _, shot -> shot.id }) { index, shot ->
-                        Surface(shape = themedShape(PopRadius.field), color = c.surfaceContainerLow,
-                            border = BorderStroke(.7.dp, c.outlineVariant)) {
+                        ArkGlassCard(shape = themedShape(PopRadius.field), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("${(index + 1).toString().padStart(2, '0')}  分镜", fontWeight = FontWeight.Bold,
@@ -110,9 +109,8 @@ internal fun DirectorStoryboardDialog(
 private fun FrameSlot(label: String, path: String?, enabled: Boolean, modifier: Modifier,
     onPick: () -> Unit, onClear: () -> Unit) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = themedShape(PopRadius.chip),
-            modifier = Modifier.fillMaxWidth().height(72.dp).clip(themedShape(PopRadius.chip))
-                .clickable(enabled = enabled, onClick = onPick)) {
+        ArkGlassCard(shape = themedShape(PopRadius.chip), onClick = if (enabled) onPick else null,
+            modifier = Modifier.fillMaxWidth().height(72.dp)) {
             if (path != null) AsyncImage(File(path), "选择或更换$label", contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize())
             else Box(contentAlignment = Alignment.Center) { Text("＋ $label", style = MaterialTheme.typography.labelMedium) }

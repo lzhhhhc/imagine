@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.res.painterResource
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.lo.imagine.data.DIRECTOR_STAGES
 import com.lo.imagine.data.DirectorEngine
 import com.lo.imagine.data.DirectorInterviewState
+import com.lo.imagine.ui.ArkGlassCard
 import com.lo.imagine.ui.ArkHeroArtwork
 import com.lo.imagine.ui.PIcon
 import com.lo.imagine.ui.PopFilm
@@ -51,22 +53,58 @@ internal fun DirectorInlineInput(content: @Composable () -> Unit) {
 @Composable
 internal fun DirectorHeader(shotCount: Int, onStoryboard: () -> Unit, onMaterials: () -> Unit) {
     val c = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("导演台", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.onBackground,
-                modifier = Modifier.weight(1f))
-            TextButton(onClick = onStoryboard, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                PIcon(PopFilm, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (shotCount == 0) "分镜" else "分镜 $shotCount", fontSize = 12.sp)
+    val dark = c.background.luminance() < .5f
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 188.dp, max = 218.dp)
+            .clip(RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp))
+    ) {
+        ArkHeroArtwork("director", Modifier.matchParentSize())
+        // 顶部只保留一层轻薄遮罩，保住素材构图，同时保证文字与按钮可读。
+        Box(Modifier.matchParentSize().background(c.background.copy(alpha = if (dark) .18f else .30f)))
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 18.dp)) {
+            // 标题行不写死高度：随字体缩放自然撑开，长字号也不会截断。
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("RHODES ISLAND", fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 1.3.sp,
+                        fontWeight = FontWeight.Bold, color = c.onBackground.copy(alpha = .78f))
+                    Text("导演台", fontSize = 24.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold,
+                        color = c.onBackground)
+                }
+                HeaderPillAction(onClick = onStoryboard, icon = PopFilm,
+                    label = if (shotCount == 0) "分镜" else "分镜 $shotCount")
+                HeaderPillAction(onClick = onMaterials, icon = PopGallery, label = "素材")
             }
-            TextButton(onClick = onMaterials, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                PIcon(PopGallery, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("素材", fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.padding(bottom = 14.dp), verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text("IDEAS TO VISUALS.", fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 1.4.sp,
+                        color = c.onBackground.copy(alpha = .72f))
+                    Spacer(Modifier.height(3.dp))
+                    Text("先从一个画面开始。", fontSize = 15.sp, lineHeight = 20.sp,
+                        fontWeight = FontWeight.SemiBold, color = c.onBackground)
+                }
+                Text("03 / 05\nDIRECTOR", textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    fontSize = 9.sp, lineHeight = 13.sp, letterSpacing = 1.sp,
+                    color = c.onBackground.copy(alpha = .68f))
             }
         }
-        Box(Modifier.fillMaxWidth().height(.7.dp).background(c.outlineVariant))
+    }
+}
+
+/** 右上角胶囊入口：沿用全应用已认可的描边 chip 皮肤（图标 + 短文字），不用突兀的方块大按钮。 */
+@Composable
+private fun HeaderPillAction(onClick: () -> Unit, icon: ImageVector, label: String) {
+    val c = MaterialTheme.colorScheme
+    Surface(onClick = onClick, shape = themedShape(PopRadius.chip),
+        color = c.surface.copy(alpha = .78f), contentColor = c.onSurface,
+        border = BorderStroke(.7.dp, c.outlineVariant),
+        modifier = Modifier.heightIn(min = 44.dp)) {
+        Row(Modifier.padding(horizontal = 11.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PIcon(icon, null, Modifier.size(18.dp), tint = c.primary)
+            Text(label, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 
@@ -74,13 +112,13 @@ internal fun DirectorHeader(shotCount: Int, onStoryboard: () -> Unit, onMaterial
 internal fun DirectorEngineSwitch(engine: DirectorEngine, enabled: Boolean, onSelect: (DirectorEngine) -> Unit) {
     val c = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().clip(themedShape(PopRadius.field))
-        .background(c.surfaceContainerLow).selectableGroup().padding(4.dp),
+        .background(c.surfaceContainer.copy(alpha = .94f)).selectableGroup().padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         DirectorEngine.entries.forEach { item ->
             val selected = item == engine
             Box(Modifier.weight(1f)
                 .heightIn(min = 48.dp).clip(themedShape(PopRadius.chip))
-                .background(if (selected) c.primary else c.surfaceContainerLow)
+                .background(if (selected) c.primary else c.surface.copy(alpha = .55f))
                 .selectable(selected, enabled = enabled, role = Role.Tab, onClick = { onSelect(item) })
                 .semantics { contentDescription = "${item.fullName} 提示词工程" }
                 .padding(horizontal = 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
@@ -128,8 +166,7 @@ internal fun DirectorPrimaryAction(text: String, enabled: Boolean = true, onClic
 @Composable
 internal fun DirectorSummaryCard(title: String, text: String, action: String? = null, onAction: () -> Unit = {}) {
     val c = MaterialTheme.colorScheme
-    Surface(color = c.surfaceContainerLow, shape = themedShape(PopRadius.field),
-        border = BorderStroke(.7.dp, c.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+    ArkGlassCard(shape = themedShape(PopRadius.field), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,

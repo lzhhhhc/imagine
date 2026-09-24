@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -70,7 +71,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -91,8 +91,10 @@ import com.lo.imagine.ui.PopCheck
 import com.lo.imagine.ui.PopCopy
 import com.lo.imagine.ui.PopDownload
 import com.lo.imagine.ui.PopEdit
+import com.lo.imagine.ui.PopAlertDialog
 import com.lo.imagine.ui.PopGallery
 import com.lo.imagine.ui.PopIconButton
+import com.lo.imagine.ui.PopTrash
 import com.lo.imagine.ui.EditState
 import com.lo.imagine.ui.PreviewStore
 import com.lo.imagine.util.ImageUtils
@@ -143,6 +145,8 @@ private object PageImageCache {
 
     fun get(file: File): Bitmap? = lru.get(file.absolutePath)
 
+    fun evict(file: File) { lru.remove(file.absolutePath) }
+
     suspend fun load(file: File): Bitmap? = withContext(Dispatchers.IO) {
         lru.get(file.absolutePath) ?: ImageUtils.decodeFile(file)?.also { lru.put(file.absolutePath, it) }
     }
@@ -172,6 +176,11 @@ fun PreviewScreen(
     // 相册模式（historyList 非空）专用：当前页是否处于放大态 / 缩放复位信号
     var pagerZoomed by remember { mutableStateOf(false) }
     var pagerResetTick by remember { mutableIntStateOf(0) }
+    var galleryEpoch by remember { mutableIntStateOf(0) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val ink = MaterialTheme.colorScheme.onSurface
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val chrome = MaterialTheme.colorScheme.surface.copy(alpha = .88f)
 
     fun setImmersive(on: Boolean) {
         immersive = on
@@ -239,6 +248,37 @@ fun PreviewScreen(
         Toast.makeText(context, "提示词已复制", Toast.LENGTH_SHORT).show()
     }
 
+    fun removeCurrentWork() {
+        val list = PreviewStore.historyList?.toMutableList() ?: return
+        if (list.isEmpty()) return
+        val index = PreviewStore.historyIndex.coerceIn(0, list.lastIndex)
+        val entry = list.removeAt(index)
+        ImageUtils.deleteHistory(entry)
+        PageImageCache.evict(entry.file)
+        PreviewStore.historyRevision++
+        if (list.isEmpty()) {
+            PreviewStore.historyList = null
+            PreviewStore.bitmap = null
+            onBack()
+            return
+        }
+        val next = index.coerceAtMost(list.lastIndex)
+        val neighbor = list[next]
+        PreviewStore.historyList = list
+        PreviewStore.historyIndex = next
+        PreviewStore.prompt = neighbor.meta.prompt
+        PreviewStore.model = neighbor.meta.model
+        PreviewStore.workflowDetails = neighbor.meta.workflowDetails
+        PreviewStore.elapsedText = ImageUtils.formatElapsed(neighbor.meta.elapsedSec)
+        PreviewStore.sizeNote = null
+        saved = false
+        galleryEpoch++
+        PageImageCache.get(neighbor.file)?.let { PreviewStore.bitmap = it }
+        scope.launch {
+            PageImageCache.load(neighbor.file)?.let { PreviewStore.bitmap = it }
+        }
+    }
+
     fun saveToGallery() {
         if (bitmap == null || saving || saved) return
         saving = true
@@ -257,15 +297,32 @@ fun PreviewScreen(
     // The image uses a single, gesture-controlled scale. An extra resting scale would
     // make the zoom boundary and pan range move whenever the chrome appears.
 
+    if (confirmDelete) {
+        PopAlertDialog(
+            title = "删除这个作品？",
+            onDismissRequest = { confirmDelete = false },
+            icon = PopTrash,
+            text = { Text("本机保存的图片与提示词将被删除，无法恢复。") },
+            confirmLabel = "删除",
+            confirmContainer = MaterialTheme.colorScheme.error,
+            confirmContentColor = MaterialTheme.colorScheme.onError,
+            onConfirm = {
+                confirmDelete = false
+                removeCurrentWork()
+            }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0D10))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         if (bitmap != null) {
             val history = PreviewStore.historyList
             if (!history.isNullOrEmpty()) {
                 // —— 相册模式：HorizontalPager 跟手翻页，相邻页提前组合并异步解码，滑动零卡顿 ——
+                key(galleryEpoch) {
                 val pagerState = rememberPagerState(
                     initialPage = PreviewStore.historyIndex.coerceIn(0, history.lastIndex)
                 ) { history.size }
@@ -303,6 +360,7 @@ fun PreviewScreen(
                         onToggleImmersive = { setImmersive(!immersive) },
                         onZoomChanged = { pagerZoomed = it }
                     )
+                }
                 }
             } else {
             AnimatedContent(
@@ -427,9 +485,9 @@ modifier = Modifier
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.align(Alignment.Center)) {
-                PIcon(PopGallery, contentDescription = null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.size(42.dp))
+                PIcon(PopGallery, contentDescription = null, tint = muted, modifier = Modifier.size(42.dp))
                 Spacer(Modifier.size(10.dp))
-                Text("图片暂时不可用", color = Color.White.copy(alpha = .8f))
+                Text("图片暂时不可用", color = muted)
             }
         }
 
@@ -448,16 +506,16 @@ modifier = Modifier
                     contentDescription = "返回",
                     onClick = onBack,
                     modifier = Modifier.size(40.dp),
-                    containerColor = Color.Black.copy(alpha = .56f),
-                    iconTint = Color.White,
+                    containerColor = chrome,
+                    iconTint = ink,
                     iconSize = 22.dp,
                     shape = CircleShape,
                 )
                 Spacer(Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("预览", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("预览", color = ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     if (PreviewStore.model.isNotBlank()) {
-                        Text(PreviewStore.model, color = Color.White.copy(alpha = .58f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(PreviewStore.model, color = muted, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -475,23 +533,40 @@ modifier = Modifier
                     Surface(
                         onClick = { copyPrompt() },
                         shape = RoundedCornerShape(50),
-                        color = Color.Black.copy(alpha = .56f),
+                        color = chrome,
                         modifier = Modifier.size(38.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                             PIcon(
                                 PopCopy,
                                 contentDescription = "复制提示词",
-                                tint = Color.White,
+                                tint = ink,
                                 modifier = Modifier.size(18.dp)
                             )
+                        }
+                    }
+                    if (PreviewStore.historyList?.isNotEmpty() == true) {
+                        Surface(
+                            onClick = { confirmDelete = true },
+                            shape = RoundedCornerShape(50),
+                            color = chrome,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                PIcon(
+                                    PopTrash,
+                                    contentDescription = "删除这个作品",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                     Surface(
                         onClick = { saveToGallery() },
                         enabled = !saving && !saved,
                         shape = RoundedCornerShape(50),
-                        color = Color.Black.copy(alpha = .56f),
+                        color = chrome,
                         modifier = Modifier.size(38.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -501,14 +576,14 @@ modifier = Modifier
                                 PIcon(
                                     PopCheck,
                                     contentDescription = "已保存",
-                                    tint = Color.White,
+                                    tint = ink,
                                     modifier = Modifier.size(19.dp)
                                 )
                             } else {
                                 PIcon(
                                     PopDownload,
                                     contentDescription = "保存到相册",
-                                    tint = Color.White,
+                                    tint = ink,
                                     modifier = Modifier.size(19.dp)
                                 )
                             }
@@ -517,21 +592,21 @@ modifier = Modifier
                 }
                 Spacer(Modifier.size(8.dp))
                 Surface(
-                    color = Color.Black.copy(alpha = .32f),
+                    color = chrome,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        Text("${bitmap?.width} × ${bitmap?.height}", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
+                        Text("${bitmap?.width} × ${bitmap?.height}", color = ink, style = MaterialTheme.typography.labelSmall)
                         if (PreviewStore.elapsedText.isNotBlank()) {
                             Spacer(Modifier.width(7.dp))
-                            Text(PreviewStore.elapsedText, color = Color.White.copy(alpha = .55f), style = MaterialTheme.typography.labelSmall)
+                            Text(PreviewStore.elapsedText, color = muted, style = MaterialTheme.typography.labelSmall)
                         }
                         val upstreamNote = PreviewStore.sizeNote
                         if (upstreamNote != null && bitmap != null && upstreamNote != "${bitmap.width}x${bitmap.height}") {
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 "模型实际输出 ${upstreamNote.replace("x", "×")}",
-                                color = Color.White.copy(alpha = .55f),
+                                color = muted,
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
@@ -617,11 +692,11 @@ modifier = Modifier
 
         if (immersive && bitmap != null) {
             Surface(
-                color = Color.Black.copy(alpha = .38f),
+                color = chrome,
                 shape = RoundedCornerShape(50),
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 18.dp)
             ) {
-                Text("点按画面显示控件", color = Color.White.copy(alpha = .62f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                Text("点按画面显示控件", color = muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
             }
         }
     }
@@ -787,9 +862,11 @@ private fun PromptDrawer(
         ).dp
     val actionsVisible = expansion > .92f
 
+    val ink = MaterialTheme.colorScheme.onSurface
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
-        color = Color(0xF21A1A20),
-        contentColor = Color.White,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = ink,
         shape = panelShape,
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
@@ -850,7 +927,7 @@ private fun PromptDrawer(
                         modifier = Modifier
                             .width(44.dp)
                             .height(4.dp)
-                            .background(Color.White.copy(alpha = .3f), RoundedCornerShape(50))
+                            .background(muted.copy(alpha = .45f), RoundedCornerShape(50))
                     )
                 }
                 Row(
@@ -865,12 +942,12 @@ private fun PromptDrawer(
                             "提示词",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White
+                            color = ink
                         )
                         if (PreviewStore.model.isNotBlank()) {
                             Text(
                                 PreviewStore.model,
-                                color = Color.White.copy(alpha = .5f),
+                                color = muted,
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -884,7 +961,7 @@ private fun PromptDrawer(
             Text(
                 listOfNotNull(PreviewStore.prompt.takeIf { it.isNotBlank() }, PreviewStore.workflowDetails).joinToString("\n\n"),
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = .9f),
+                color = ink,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -896,7 +973,7 @@ private fun PromptDrawer(
                 TextButton(
                     onClick = onEdit,
                     enabled = PreviewStore.bitmap != null,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                    colors = ButtonDefaults.textButtonColors(contentColor = ink),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp)

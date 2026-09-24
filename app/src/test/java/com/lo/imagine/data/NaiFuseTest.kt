@@ -43,7 +43,6 @@ class NaiFuseTest {
         assertEquals("", merged.characterCards[1].fusedCaption)
         assertEquals("c tags", merged.characterCards[2].fusedCaption)
     }
-
     @Test
     fun `edits during the task discard the stale fusion`() {
         val snapshot = NaiWorkspaceConfig(prompt = "garden", characterCards = listOf(card("A")))
@@ -51,6 +50,58 @@ class NaiFuseTest {
         assertNull(applyFusedCaptions(snapshot, edited, listOf("a tags")))
         val editedCard = snapshot.copy(characterCards = listOf(card("A", traits = "red hair")))
         assertNull(applyFusedCaptions(snapshot, editedCard, listOf("a tags")))
+    }
+
+    @Test
+    fun `editing the scene marks a previous arrangement stale instead of hiding it`() {
+        val base = NaiWorkspaceConfig(
+            prompt = "garden",
+            characterCards = listOf(card("A", fused = "close-up, silver hair"))
+        )
+        val edited = updateNaiArrangement(base, base.copy(prompt = "sunset garden"))
+        assertTrue(edited.characterArrangementStale)
+        assertTrue(edited.characterCards.all { it.fusedCaption.isBlank() })
+
+        // 整理成功后回到有效态；写回自身（来源未变）不触发失效
+        val applied = updateNaiArrangement(edited, edited.copy(characterArrangementStale = false))
+        assertFalse(applied.characterArrangementStale)
+        // 手动放弃整理结果（使用原始标签）后，失效提示一并消失
+        val afterClear = updateNaiArrangement(applied, applied.copy(
+            characterCards = applied.characterCards.map { it.copy(fusedCaption = "") },
+            characterArrangementStale = false))
+        assertFalse(afterClear.characterArrangementStale)
+    }
+
+    @Test
+    fun `arranged role tags are visible in the main prompt and do not duplicate character fields`() {
+        assertEquals(
+            "女孩站在花园, silver hair, blue coat",
+            naiArrangementPrompt("女孩站在花园", listOf("silver hair", "blue coat"))
+        )
+        val c = NaiWorkspaceConfig(
+            prompt = "女孩站在花园, silver hair, blue coat",
+            characterArrangementInPrompt = true,
+            characterArrangementPolished = true,
+            characterCards = listOf(card("A", fused = "silver hair, blue coat"))
+        )
+        assertTrue(activeNaiCharacterCards(c).isEmpty())
+        val payload = naiNativePayload(c, 0)
+        val p = payload["parameters"] as Map<*, *>
+        assertTrue(payload["input"].toString().contains("silver hair"))
+        assertTrue((p["characterPrompts"] as List<*>).isEmpty())
+        assertTrue(naiDisplayPrompt(c, payload["input"].toString()).contains("blue coat"))
+    }
+
+    @Test
+    fun `arrangement source can be restored without losing the user description`() {
+        val source = "女孩站在花园"
+        val c = NaiWorkspaceConfig(
+            prompt = naiArrangementPrompt(source, listOf("silver hair")),
+            characterArrangementInPrompt = true,
+            characterArrangementBasePrompt = source
+        )
+        assertEquals(source, c.characterArrangementBasePrompt)
+        assertEquals("女孩站在花园, silver hair", c.prompt)
     }
 
     @Test

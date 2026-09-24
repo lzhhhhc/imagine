@@ -20,6 +20,7 @@ class ComfyTaskTest {
         var submissions = 0
         var queries = 0
         var deletes = 0
+        val nodeInfoTypes = mutableListOf<String>()
         var result = RemoteStatus(ComfyPhase.SUCCEEDED, listOf(RemoteImage("7", "a.png"), RemoteImage("7", "b.png")), complete = true)
         var submitError: Exception? = null
         var missingImage = false
@@ -27,7 +28,10 @@ class ComfyTaskTest {
         val secondStarted = CompletableDeferred<Unit>()
         val downloads = mutableListOf<String>()
         override suspend fun inspect(connection: ComfyConnection) = "ok"
-        override suspend fun nodeInfo(connection: ComfyConnection, classType: String) = JsonObject()
+        override suspend fun nodeInfo(connection: ComfyConnection, classType: String): JsonObject {
+            nodeInfoTypes += classType
+            return JsonObject()
+        }
         override suspend fun upload(connection: ComfyConnection, source: File, filename: String) = UploadedImage(filename)
         override suspend fun submit(connection: ComfyConnection, graph: JsonObject, clientId: String): Submission {
             submissions++; submitError?.let { throw it }; return Submission("prompt-1")
@@ -58,6 +62,23 @@ class ComfyTaskTest {
         repository.saveConnection(ComfyConnection(baseUrl = "http://localhost:8188"))
         repository.saveWorkflow(sampleWorkflow()); return repository
     }
+    @Test fun `generation skips schema requests for bypass nodes`() = runBlocking {
+        val directory = temp.newFolder(); val repo = repository(directory)
+        val workflow = repo.state.value.selected!!
+        val missing = JsonObject().apply {
+            addProperty("class_type", "MissingCustomNode")
+            add("inputs", JsonObject().apply { addProperty("value", "x") })
+            addProperty("mode", ComfyWorkflowEngine.MODE_BYPASS)
+        }
+        val graph = workflow.graph.deepCopy().apply { add("99", missing) }
+        repo.saveWorkflow(workflow.copy(graph = graph))
+        val backend = Backend()
+        val coordinator = ComfyTaskCoordinator(repo, backend, Archive(directory), { launch { it() } }, 1)
+        coordinator.generate(false); idle(repo)
+        assertFalse(backend.nodeInfoTypes.contains("MissingCustomNode"))
+        assertEquals(1, backend.submissions)
+    }
+
     @Test fun `unknown submissions are recovered by id without another post`() = runBlocking {
         val directory = temp.newFolder(); val repo = repository(directory); val backend = Backend()
         backend.submitError = SubmissionUncertain(IOException("lost reply"))

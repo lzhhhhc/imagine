@@ -19,11 +19,24 @@ fun comfyBaseUrl(raw: String): HttpUrl {
     return if (url.encodedPath.endsWith('/')) url else url.newBuilder().addPathSegment("").build()
 }
 
+/** OkHttp reports a stalled socket as the bare word "timeout". Keep that out of the workbench. */
+internal fun comfyIoMessage(error: IOException): IOException {
+    val raw = error.message.orEmpty()
+    val timedOut = error is java.net.SocketTimeoutException ||
+        raw.equals("timeout", ignoreCase = true) || raw.contains("timed out", ignoreCase = true)
+    if (!timedOut) return error
+    return IOException("连接 ComfyUI 超时。图片较大或服务器暂时没响应，请确认地址还能打开后再试", error)
+}
+
 class ComfyClient : WorkflowBackend {
     override val providerId = COMFY_PROVIDER
-    private val http = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS).callTimeout(120, TimeUnit.SECONDS)
+    private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).callTimeout(180, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build()
+    /** Uploads and downloads move whole files; a 10-second write stall must not abort them. */
+    private val transfer = http.newBuilder()
+        .readTimeout(180, TimeUnit.SECONDS).writeTimeout(0, TimeUnit.SECONDS).callTimeout(10, TimeUnit.MINUTES)
+        .build()
 
     private fun endpoint(c: ComfyConnection, vararg segments: String): HttpUrl {
         require(c.providerId == providerId) { "未实现的后端：${c.providerId}" }
@@ -66,12 +79,12 @@ class ComfyClient : WorkflowBackend {
             require(copied == length) { "上传文件读取不完整" }
         }
     }
-    private suspend fun <T> execute(request: Request, consume: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
-        val call = http.newCall(request)
+    private suspend fun <T> execute(request: Request, consume: (Response) -> T, client: OkHttpClient = http): T = suspendCancellableCoroutine { continuation ->
+        val call = client.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isActive) continuation.resumeWithException(e)
+                if (continuation.isActive) continuation.resumeWithException(comfyIoMessage(e))
             }
             override fun onResponse(call: Call, response: Response) {
                 try {
@@ -132,7 +145,7 @@ class ComfyClient : WorkflowBackend {
             .addFormDataPart("type", "input")
             .build()
         val request = requestBuilder(connection, endpoint(connection, "upload", "image")).post(multipart).build()
-        val json = execute(request, ::jsonResponse)
+        val json = execute(request, ::jsonResponse, transfer)
         val name = json.get("name")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
             ?: throw IOException("上传响应缺少文件名")
         val subfolder = json.get("subfolder")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString.orEmpty()
@@ -211,15 +224,15 @@ class ComfyClient : WorkflowBackend {
     override suspend fun removeQueued(connection: ComfyConnection, id: String) {
         require(id.isNotBlank())
         val body = JsonObject().apply { add("delete", JsonArray().apply { add(id) }) }
-        execute(request(connection, endpoint(connection, "queue"), body)) { response ->
+        execute(request(connection, endpoint(connection, "queue"), body), { response ->
             if (!response.isSuccessful) jsonResponse(response)
-        }
+        })
     }
 
     override suspend fun download(connection: ComfyConnection, image: RemoteImage, destination: File) {
         val url = endpoint(connection, "view").newBuilder().addQueryParameter("filename", image.filename)
             .addQueryParameter("subfolder", image.subfolder).addQueryParameter("type", image.type).build()
-        execute(request(connection, url)) { response ->
+        execute(request(connection, url), { response ->
             if (!response.isSuccessful) jsonResponse(response)
             val body = response.body ?: throw IOException("图片内容为空")
             val limit = 128L * 1024 * 1024
@@ -234,6 +247,6 @@ class ComfyClient : WorkflowBackend {
                     require(size > 0 && (body.contentLength() < 0 || size == body.contentLength())) { "图片下载不完整" }
                 } }
             } catch (e: Exception) { destination.delete(); throw e }
-        }
+        }, transfer)
     }
 }

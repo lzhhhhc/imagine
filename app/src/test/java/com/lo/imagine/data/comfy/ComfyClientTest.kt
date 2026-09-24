@@ -10,6 +10,7 @@ import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 class ComfyClientTest {
@@ -23,6 +24,13 @@ class ComfyClientTest {
     }
     @After fun tearDown() { server.shutdown() }
     private fun response(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+    @Test fun `a bare socket timeout is explained instead of shown as timeout`() {
+        val explained = comfyIoMessage(SocketTimeoutException("timeout"))
+        assertTrue(explained.message!!.contains("超时"))
+        assertFalse(explained.message.equals("timeout", ignoreCase = true))
+        val refused = IOException("connection refused")
+        assertSame(refused, comfyIoMessage(refused))
+    }
     @Test fun `base prefix and explicit Bearer are reused on every endpoint`() = runBlocking {
         server.enqueue(response("""{"system":{"comfyui_version":"test"},"devices":[]}"""))
         assertTrue(client.inspect(connection).contains("test"))

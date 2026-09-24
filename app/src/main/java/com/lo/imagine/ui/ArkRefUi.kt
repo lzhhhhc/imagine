@@ -69,17 +69,18 @@ fun ArkTileButton(cn: String, en: String, onClick: () -> Unit,
  *  beside it: translucent surface, fine outline, primary-tinted glyph. */
 @Composable
 fun ArkBlockAction(icon: Int, cn: String, en: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    ArkCircleAction(icon = icon, description = "$cn · $en", onClick = onClick, modifier = modifier)
+}
+
+/** 右上角圆形图标钮：保留描边胶囊的皮肤语言，只留品牌连线的图标本体；所选预设读屏可闻。 */
+@Composable
+fun ArkCircleAction(icon: Int, description: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = MaterialTheme.colorScheme
     Surface(onClick = onClick, shape = CircleShape, color = c.surface.copy(alpha = .82f),
         border = BorderStroke(.7.dp, c.outlineVariant),
-        modifier = modifier.heightIn(min = RefUiTokens.controlHeight).widthIn(max = 150.dp)) {
-        Row(Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PIcon(icon, null, Modifier.size(16.dp), tint = c.primary)
-            Text(cn, fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 16.sp,
-                fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false))
-            PIcon(RefIcons.Chevron, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+        modifier = modifier.size(44.dp).semantics { contentDescription = description }) {
+        Box(contentAlignment = Alignment.Center) {
+            PIcon(icon, null, Modifier.size(19.dp), tint = c.primary)
         }
     }
 }
@@ -175,6 +176,43 @@ fun ArkInkPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.
     }
 }
 
+/**
+ * 修图、导演共用的玻璃卡片。壁纸页透出画面，纯色页用更实的面板；
+ * 明暗都走主题色，不再铺不透明灰块。
+ */
+@Composable
+fun ArkGlassCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    shape: androidx.compose.ui.graphics.Shape = themedShape(PopRadius.card),
+    accent: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val c = MaterialTheme.colorScheme
+    val overArt = fullBackdropRes(LocalArkRoute.current, c.background.luminance() < .5f) != null
+    val fill = when {
+        accent -> c.primaryContainer.copy(alpha = if (overArt) .86f else 1f)
+        overArt -> c.surface.copy(alpha = .68f)
+        else -> c.surfaceContainer.copy(alpha = .94f)
+    }
+    val border = BorderStroke(.8.dp, if (accent) c.primary.copy(alpha = .55f) else c.outlineVariant)
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = fill, contentColor = c.onSurface,
+            tonalElevation = 0.dp, shadowElevation = 0.dp, border = border, modifier = modifier) { content() }
+    } else {
+        Surface(shape = shape, color = fill, contentColor = c.onSurface,
+            tonalElevation = 0.dp, shadowElevation = 0.dp, border = border, modifier = modifier) { content() }
+    }
+}
+
+private val LocalArkRoute = androidx.compose.runtime.staticCompositionLocalOf<String?> { null }
+
+/** 壳层把当前路由交给卡片，用来判断背后是壁纸还是纯色。 */
+@Composable
+fun ProvideArkRoute(route: String?, content: @Composable () -> Unit) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalArkRoute provides route, content = content)
+}
+
 @Composable
 fun ArkTranslateGlyph() = PIcon(RefIcons.Translate, null, Modifier.size(RefUiTokens.tileIcon).padding(1.dp))
 
@@ -252,34 +290,42 @@ fun RefFieldLabel(title: String, english: String) {
     }
 }
 
-/** Art belongs to the scrollable hero, never a full-height Crop. */
+/** 设置、主页、修图共用同一条全屏壁纸路径，日夜各一张，铺满不裁成顶栏。 */
 @Composable
 fun ArkPageBackdrop(route: String?, modifier: Modifier = Modifier) {
-    if (route == "settings") {
-        val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-        Image(painterResource(if (dark) R.drawable.settings_full_dark else R.drawable.settings_full_light),
-            null, modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+    val art = fullBackdropRes(route, MaterialTheme.colorScheme.background.luminance() < .5f)
+    if (art != null) {
+        Image(painterResource(art), null, modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
     } else Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+}
+
+internal fun fullBackdropRes(route: String?, isDark: Boolean): Int? = when (route) {
+    "studio" -> if (isDark) R.drawable.studio_full_dark else R.drawable.studio_full_light
+    "edit" -> if (isDark) R.drawable.edit_full_dark else R.drawable.edit_full_light
+    "settings" -> if (isDark) R.drawable.settings_full_dark else R.drawable.settings_full_light
+    else -> null
 }
 
 @Composable
 fun ArkHeroArtwork(route: String?, modifier: Modifier = Modifier) {
     val c = MaterialTheme.colorScheme
     val dark = c.background.luminance() < .5f
+    // 整页壁纸已经铺在壳层，页头不再叠第二张图。
+    if (fullBackdropRes(route, dark) != null) {
+        Box(modifier)
+        return
+    }
     Box(modifier.clip(androidx.compose.ui.graphics.RectangleShape)) {
         Image(painterResource(backdropRes(route, dark)), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
             alignment = when {
-                route == "settings" && dark -> Alignment.BottomCenter
-                route == "edit" && dark -> androidx.compose.ui.BiasAlignment(0f, -.35f)
                 route == "director" -> androidx.compose.ui.BiasAlignment(0f, .5f)
-                route == "studio" -> Alignment.TopCenter
                 else -> Alignment.Center
             })
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
-            0f to c.background.copy(alpha = if (dark) .90f else .94f), .24f to c.background.copy(alpha = if (dark) .55f else .7f),
-            .55f to c.background.copy(alpha = .04f), 1f to Color.Transparent)))
+        // 只给仍在页头裁图的页面压一层，整页壁纸页面不在这里改字色。
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-            0f to c.background.copy(alpha = .04f), .55f to Color.Transparent, .83f to c.background.copy(alpha = .62f), 1f to c.background)))
+            0f to c.background.copy(alpha = if (dark) .28f else .18f),
+            .62f to Color.Transparent,
+            1f to c.background.copy(alpha = if (dark) .55f else .42f))))
     }
 }
 

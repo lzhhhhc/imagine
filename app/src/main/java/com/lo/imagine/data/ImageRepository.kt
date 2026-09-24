@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
@@ -367,7 +368,8 @@ class ImageRepository(private val context: Context) {
         durationSec: String,
         videoAspect: String,
         images: List<String> = emptyList(),
-        referenceLabels: String = ""
+        referenceLabels: String = "",
+        onStream: suspend (String) -> Unit = {}
     ): Result<DirectorStepTurn> = withContext(Dispatchers.IO) {
         if (state.isReview) return@withContext Result.failure(IllegalStateException("框架已进入确认阶段"))
         llmApiConfigurationError(settings)?.let { return@withContext Result.failure(IllegalArgumentException(it)) }
@@ -377,7 +379,7 @@ class ImageRepository(private val context: Context) {
         if (base.isEmpty() || apiKey.isEmpty() || model.isEmpty()) {
             return@withContext Result.failure(IllegalStateException("请先在设置中配置提示词润色 LLM"))
         }
-        val api = buildApi(base, apiKey)
+        buildApi(base, apiKey)
             ?: return@withContext Result.failure(IllegalStateException("LLM 配置无效"))
         val materials = buildString {
             appendLine("【框架】")
@@ -390,19 +392,63 @@ class ImageRepository(private val context: Context) {
             append(transcript)
         }
         try {
-            val resp = api.chat(ChatCompletionRequest(model = model, messages = listOf(
+            val requestBody = ChatCompletionRequest(model = model, messages = listOf(
                 ChatMessage("system", directorInterviewSystem(engine, state.stageIndex)),
                 ChatMessage("user", directorMultimodalContent(materials, images))
-            )))
-            val err = resp.error?.message
-            if (!err.isNullOrBlank()) return@withContext Result.failure(Exception(err))
-            val raw = resp.choices?.firstOrNull()?.message?.content ?: resp.choices?.firstOrNull()?.text
-            require(raw is String && raw.isNotBlank()) { "导演返回为空，请重试" }
+            ), stream = true)
+            val raw = streamDirectorChat(base, apiKey, requestBody, onStream)
+            require(raw.isNotBlank()) { "导演返回为空，请重试" }
             Result.success(parseDirectorStepTurn(raw, DIRECTOR_STAGES[state.stageIndex].key))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             Result.failure(Exception(describeError(e)))
+        }
+    }
+
+    private suspend fun streamDirectorChat(
+        baseUrl: String,
+        apiKey: String,
+        body: ChatCompletionRequest,
+        onStream: suspend (String) -> Unit
+    ): String {
+        val url = "${baseUrl.trim().trimEnd('/')}/chat/completions"
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer ${apiKey.trim()}")
+            .header("Accept", "text/event-stream")
+            .post(gson.toJson(body).toRequestBody("application/json".toMediaType()))
+            .build()
+        val client = httpClientBuilder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(240, TimeUnit.SECONDS)
+            .build()
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body ?: throw IOException("导演流式响应为空")
+            check(response.isSuccessful) { "导演流式请求 HTTP ${response.code}" }
+            val type = responseBody.contentType()
+            require(type?.type == "text" && type.subtype.contains("event-stream", ignoreCase = true)) {
+                "服务商未返回流式事件，请确认当前 LLM 支持 stream=true"
+            }
+            val full = StringBuilder()
+            var done = false
+            responseBody.source().use { source ->
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data == "[DONE]") { done = true; break }
+                    if (data.isBlank()) continue
+                    val delta = directorSseDelta(data)
+                    if (delta.isNotEmpty()) {
+                        full.append(delta)
+                        onStream(full.toString())
+                    }
+                }
+            }
+            require(done) { "导演流式响应提前中断，请重试本轮" }
+            return full.toString()
         }
     }
 
@@ -417,8 +463,9 @@ class ImageRepository(private val context: Context) {
                 ChatMessage("system", directorProductionSystem(engine, totalSeconds, aspect)),
                 ChatMessage("user", directorMultimodalContent(brief, images)))))
             response.error?.message?.takeIf { it.isNotBlank() }?.let { error(it) }
-            val raw = response.choices?.firstOrNull()?.message?.content ?: response.choices?.firstOrNull()?.text
-            require(raw is String && raw.isNotBlank()) { "导演返回为空" }
+            val raw = directorReplyText(response.choices?.firstOrNull()?.message?.content
+                ?: response.choices?.firstOrNull()?.text)
+            require(raw.isNotBlank()) { "导演返回为空" }
             Result.success(parseDirectorStoryboard(raw, totalSeconds, aspect))
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: Exception) { Result.failure(e) }
@@ -801,6 +848,48 @@ val naiMode = kind == "gen" && naiProfile != null
             } else {
                 Result.success(sanitizePromptText(out))
             }
+        } catch (e: Exception) {
+            Result.failure(Exception(describeError(e)))
+        }
+    }
+
+    /** 用设置页的润色模型分析工作流摘要。返回原文，失败时不改走别的分析。 */
+    suspend fun analyzeComfyWorkflow(settings: AppSettings, digest: String): Result<String> = withContext(Dispatchers.IO) {
+        llmApiConfigurationError(settings)?.let { return@withContext Result.failure(IllegalArgumentException(it)) }
+        val api = buildApi(settings.llmBaseUrl, settings.llmApiKey)
+            ?: return@withContext Result.failure(IllegalStateException("LLM 配置无效"))
+        val system = """
+            你是 ComfyUI API 工作流分析器。用户消息是节点摘要，不是待润色的提示词。
+            只输出一个 JSON 对象，不要 Markdown，不要解释。
+            {"nodes":["12","5"]}
+            nodes 是要在前端整块展开的节点编号。选中一个节点，就等于展示它上面所有已经写成字面值的输入，不要只挑其中一个字段。
+            - 选择用户真正要改的节点：画面提示词所在的 CLIPTextEncode、负面词所在的 CLIPTextEncode、决定最终画面尺寸的节点、主采样器、需要换参考图的 LoadImage。
+            - 尺寸选离采样器最近、width 或 height 已经是数字的那个节点。后面的节点如果改写了尺寸，不要选更早的空 latent。
+            - 不要选择只负责连线的节点，也不要选择模型、CLIP、VAE 加载节点。
+            - 编号必须出现在摘要里。没有把握就不要选。最多 8 个。
+            - 如果都不确定，输出 {"nodes":[]}。
+        """.trimIndent()
+        try {
+            val resp = api.chat(ChatCompletionRequest(
+                model = settings.llmModel.trim(),
+                messages = listOf(
+                    ChatMessage("system", system),
+                    ChatMessage("user", "下面是 ComfyUI API 工作流摘要。每一行是一个节点，等号是字面值，箭头是连线。\n$digest")
+                ),
+                temperature = 0.1,
+                maxTokens = 2000
+            ))
+            val err = resp.error?.message
+            if (!err.isNullOrBlank()) return@withContext Result.failure(Exception(err))
+            val rawText = resp.choices?.firstOrNull()?.message?.content ?: resp.choices?.firstOrNull()?.text
+            val out = when (rawText) {
+                is String -> rawText
+                else -> rawText?.toString().orEmpty()
+            }
+            if (out.isBlank()) Result.failure(Exception("模型没有返回分析结果"))
+            else Result.success(out.trim())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception(describeError(e)))
         }

@@ -50,6 +50,8 @@ import com.lo.imagine.data.CustomPreset
 import com.lo.imagine.data.ImageRepository
 import com.lo.imagine.data.ModelItem
 import com.lo.imagine.data.SettingsRepository
+import com.lo.imagine.ui.ImageImportSource
+import com.lo.imagine.ui.LibrarySettingsSection
 import com.lo.imagine.ui.DropdownField
 import com.lo.imagine.ui.ErrorPanel
 import com.lo.imagine.ui.InfoHint
@@ -761,6 +763,9 @@ PresetDropdown(
             MoodChooser(current.moodKey) { mood ->
                 scope.launch { repository.saveInterface(moodKey = mood) }
             }
+        },
+        library = {
+            LibrarySettingsSection(repository, ImageImportSource.fromId(current.imageImportSource))
         },
         output = {
             SettingsToggleRow(

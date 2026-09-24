@@ -101,6 +101,20 @@ class DirectorEngineeringTest {
         assertFalse(restored.canGenerate)
         assertEquals(3, restored.confirmedCount)
     }
+    @Test fun `sse chunks expose only visible director text while JSON is incomplete`() {
+        assertEquals("你说的画面已经很清楚", directorStreamingMessage(
+            "{\"stage\":\"story\",\"reply\":\"你说的画面已经很清楚"
+        ))
+        assertEquals("收到。\n\n镜头要固定还是跟拍？", directorStreamingMessage(
+            "{\"reply\":\"收到。\",\"summary\":\"猫奔跑\",\"complete\":false,\"ask\":\"镜头要固定还是跟拍？"
+        ))
+        assertEquals("{\"reply\":\"收到。\"}", directorSseDelta(
+            "{\"choices\":[{\"delta\":{\"content\":\"{\\\"reply\\\":\\\"收到。\\\"}\"}}]}"
+        ))
+        assertEquals("下一段", directorSseDelta(
+            "{\"choices\":[{\"delta\":{\"content\":[{\"type\":\"text\",\"text\":\"下一段\"}]}}]}"
+        ))
+    }
     @Test fun `a repeated followup appears only once in the conversation`() {
         val ask = "你想把这个画面放在哪里？"
         val reply = "主角的形象已经清楚了。\n\n$ask"

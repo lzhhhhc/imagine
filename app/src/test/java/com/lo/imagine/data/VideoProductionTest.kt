@@ -152,6 +152,61 @@ class VideoProductionTest {
         val file = folder.newFile("bad.json").apply { writeText("{broken") }
         assertTrue(runCatching { DirectorVideoTaskStore(file).load() }.isFailure)
     }
+    @Test fun `compatible protocol accepts a custom prefix model and either result shape`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"task_id":"task-9"}"""))
+            server.enqueue(MockResponse().setBody("""{"state":"completed","video_url":"https://cdn.example/custom.mp4"}"""))
+            val settings = VideoApiSettings(server.url("/relay/openai").toString(), "relay-key", "any-video-model")
+            val id = VideoClient().submit(settings, VideoProtocol.COMPATIBLE, input.copy(aspect = "21:9", firstFrame = a, lastFrame = b))
+            assertEquals("task-9", id)
+            val post = server.takeRequest(2, TimeUnit.SECONDS)!!
+            assertEquals("/relay/openai/videos/generations", post.path)
+            assertEquals("Bearer relay-key", post.getHeader("Authorization"))
+            val body = obj(post.body.readUtf8())
+            assertEquals("any-video-model", body["model"].asString)
+            assertEquals("21:9", body["aspect_ratio"].asString)
+            assertTrue(body["prompt"].asString.contains("参考图2：环境"))
+            assertEquals("https://cdn.example/custom.mp4", VideoClient().query(settings, VideoProtocol.COMPATIBLE, id).url)
+            assertEquals("/relay/openai/videos/task-9", server.takeRequest(2, TimeUnit.SECONDS)!!.path)
+        }
+    }
+    @Test fun `model list is read from the versioned root and keeps distinct ids`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(
+                """{"data":[{"id":" grok-video "},{"id":"grok-video"},{"name":"other"},{"id":" "}]}"""
+            ))
+            val settings = VideoApiSettings(server.url("/v1").toString(), "video-secret", protocolId = "grok")
+            assertEquals(listOf("grok-video", "other"), fetchVideoModels(settings).getOrThrow())
+            val get = server.takeRequest(2, TimeUnit.SECONDS)!!
+            assertEquals("GET", get.method)
+            assertEquals("/v1/models", get.path)
+            assertEquals("Bearer video-secret", get.getHeader("Authorization"))
+        }
+    }
+    @Test fun `model list paths stay on each protocol root and do not guess another host`() {
+        assertEquals("/v1/models", videoModelsEndpoint("https://video.example", VideoProtocol.GROK).encodedPath)
+        assertEquals("/proxy/v1/models", videoModelsEndpoint("https://video.example/proxy/v1/", VideoProtocol.GROK15).encodedPath)
+        assertEquals("/api/v3/models", videoModelsEndpoint("https://video.example/api/v3", VideoProtocol.SEEDANCE).encodedPath)
+        assertEquals("/relay/openai/models", videoModelsEndpoint("https://video.example/relay/openai", VideoProtocol.COMPATIBLE).encodedPath)
+        assertTrue(runCatching { videoModelsEndpoint("https://video.example/v1", VideoProtocol.SEEDANCE) }.isFailure)
+    }
+    @Test fun `model list reports an empty catalog and skips the server when the connection is incomplete`() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"models":[]}"""))
+            server.enqueue(MockResponse().setResponseCode(401).setBody("secret-token"))
+            val base = server.url("/relay/openai").toString()
+            val empty = fetchVideoModels(VideoApiSettings(base, "key", "kept-model", protocolId = "compatible"))
+            assertTrue(empty.isFailure)
+            assertTrue(empty.exceptionOrNull()!!.message!!.contains("没有返回可用模型"))
+            val denied = fetchVideoModels(VideoApiSettings(base, "secret-token", protocolId = "compatible"))
+            assertTrue(denied.exceptionOrNull()!!.message!!.contains("401"))
+            assertFalse(denied.exceptionOrNull()!!.message!!.contains("secret-token"))
+            assertTrue(fetchVideoModels(VideoApiSettings(base, "key", protocolId = null)).isFailure)
+            assertTrue(fetchVideoModels(VideoApiSettings(base, "", protocolId = "grok")).isFailure)
+            assertEquals(2, server.requestCount)
+            assertEquals("/relay/openai/models", server.takeRequest(2, TimeUnit.SECONDS)!!.path)
+        }
+    }
     @Test fun `endpoints preserve proxy prefix and reject mismatched base paths`() {
         assertEquals("/proxy/v1/videos/generations", videoEndpoint("https://video.example/proxy/v1/", VideoProtocol.GROK).encodedPath)
         assertEquals("/api/v3/contents/generations/tasks/id", videoEndpoint("https://video.example/api/v3", VideoProtocol.SEEDANCE, "id").encodedPath)

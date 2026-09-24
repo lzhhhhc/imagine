@@ -166,26 +166,30 @@ private fun ArkScreenHeader(
         else -> title.uppercase() to 1
     }
     val route = when (pageIndex) { 2 -> "edit"; 3 -> "director"; 4 -> "works"; 5 -> "settings"; else -> "studio" }
+    val fullArt = fullBackdropRes(route, scheme.background.luminance() < .5f) != null
+    val ink = if (fullArt) scheme.onSurface else scheme.onBackground
+    val muted = scheme.onSurfaceVariant
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Reference coordinates scale with phone width; OS status-bar clearance is separate.
         val ratio = if (pageIndex == 3) .59f else .43f
         val textScale = LocalDensity.current.fontScale.coerceIn(1f, 1.7f)
         val stackedModeActions = titleOverride != null && (maxWidth < 430.dp || LocalDensity.current.fontScale > 1.1f)
-        val heroHeight = (maxWidth * ratio).coerceIn(156.dp, 230.dp) + (30.dp * (textScale - 1f)) + if (stackedModeActions) 56.dp else 0.dp
+        val heroHeight = (maxWidth * ratio).coerceIn(156.dp, 230.dp) + (30.dp * (textScale - 1f))
         val safeTop = androidx.compose.foundation.layout.WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Box(Modifier.fillMaxWidth().height(heroHeight)) {
             ArkHeroArtwork(route, Modifier.fillMaxSize())
             Column(Modifier.fillMaxSize().padding(top = safeTop).padding(horizontal = 18.dp)) {
-                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.Top) {
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("RHODES ISLAND", fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold,
-                            letterSpacing = .6.sp, color = scheme.onSurface)
+                            letterSpacing = .6.sp, color = ink)
                         Text("· ONLINE", fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold,
                             letterSpacing = .7.sp, color = scheme.primary)
                     }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("%02d / 05".format(pageIndex), fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 1.sp, color = scheme.onSurfaceVariant)
-                        Text(pageEn, fontSize = 7.sp, lineHeight = 10.sp, letterSpacing = .6.sp, color = scheme.onSurfaceVariant)
+                    // 右上角专属动作位：模式页放圆形中转钮，其余页保留页码角标。
+                    if (action != null && titleOverride != null) action() else Column(horizontalAlignment = Alignment.End) {
+                        Text("%02d / 05".format(pageIndex), fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 1.sp, color = muted)
+                        Text(pageEn, fontSize = 7.sp, lineHeight = 10.sp, letterSpacing = .6.sp, color = muted)
                     }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -195,33 +199,37 @@ private fun ArkScreenHeader(
                         5 -> "CREATE\nA BRIGHTER\nTOMORROW."
                         else -> "IMAGINE\nANYTHING."
                     }, fontSize = 6.sp, lineHeight = 8.sp, letterSpacing = 1.sp,
-                        color = scheme.onSurfaceVariant, modifier = Modifier.align(Alignment.TopStart).padding(top = 12.dp))
-                    if (action != null && pageIndex == 3) {
-                        Box(Modifier.align(Alignment.BottomEnd).padding(bottom = 8.dp)) { action() }
+                        color = muted, modifier = Modifier.align(Alignment.TopStart).padding(top = 12.dp))
+                    // 页码角标沉到海报底部右下，给右上角让位。
+                    if (action != null && titleOverride != null) {
+                        Column(Modifier.align(Alignment.BottomEnd).padding(bottom = 8.dp), horizontalAlignment = Alignment.End) {
+                            Text("%02d / 05".format(pageIndex), fontSize = 9.sp, lineHeight = 12.sp, letterSpacing = 1.sp, color = muted)
+                            Text(pageEn, fontSize = 7.sp, lineHeight = 10.sp, letterSpacing = .6.sp, color = muted)
+                        }
                     }
                 }
                 if (titleOverride != null) {
                     if (stackedModeActions) {
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             titleOverride()
-                            Box(Modifier.align(Alignment.End)) { action?.invoke() }
+                            Box(Modifier.align(Alignment.End)) { if (!(action != null)) action?.invoke() }
                         }
                     } else {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             titleOverride()
                             Spacer(Modifier.weight(1f))
-                            action?.invoke()
+                            if (!(action != null)) action?.invoke()
                         }
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                         Column(Modifier.weight(1f)) {
                             Text(title, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
-                                color = scheme.onBackground)
+                                color = ink)
                             Text(pageEn, fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold,
                                 letterSpacing = .7.sp, color = scheme.primary)
                             if (!subtitle.isNullOrBlank()) Text(subtitle, fontSize = 11.sp, lineHeight = 15.sp,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = scheme.onSurface)
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
                         }
                         if (pageIndex != 3) action?.invoke()
                     }
@@ -537,7 +545,7 @@ fun PopChipRow(
                 Text(
                     text = "试试：$ex",
                     style = MaterialTheme.typography.labelSmall,
-                    color = com.lo.imagine.ui.theme.Ink,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )

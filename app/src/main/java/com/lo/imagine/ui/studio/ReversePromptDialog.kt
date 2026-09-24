@@ -3,9 +3,8 @@ package com.lo.imagine.ui.studio
 
 import com.lo.imagine.ui.theme.PopRadius
 import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import com.lo.imagine.ui.ImageImportSource
+import com.lo.imagine.ui.rememberImageImport
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -80,10 +79,8 @@ fun ReversePromptDialog(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val picker = rememberImageImport(ImageImportSource.fromId(settings.imageImportSource)) { uris ->
+        val uri = uris.firstOrNull() ?: return@rememberImageImport
         scope.launch {
             bitmap = withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(uri)?.use { input ->
@@ -158,7 +155,7 @@ fun ReversePromptDialog(
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable(enabled = !loading) {
-                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            picker.launch()
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -202,7 +199,7 @@ fun ReversePromptDialog(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                picker.launch()
                             },
                             modifier = Modifier.weight(1f),
                             enabled = !loading

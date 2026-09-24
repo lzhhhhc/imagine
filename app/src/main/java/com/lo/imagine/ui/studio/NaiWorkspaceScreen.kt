@@ -204,15 +204,9 @@ fun NaiWorkspaceScreen(
     var activeNaiPresetName by remember { mutableStateOf<String?>(null) }
 
     fun update(value: NaiWorkspaceConfig) {
-        val old = NaiWorkspaceState.config
-        // 融合结果只对生成它时的场景有效。画面提示或角色资料变化后，必须让旧 fusedCaption 失效，
-        // 否则界面已经改了角色，实际请求却仍偷偷使用上一轮 LLM 结果。
-        val oldSources = old.characterCards.map { it.copy(fusedCaption = "") }
-        val newSources = value.characterCards.map { it.copy(fusedCaption = "") }
-        val sourceChanged = old.prompt != value.prompt || oldSources != newSources
-        NaiWorkspaceState.config = if (sourceChanged) {
-            value.copy(characterCards = value.characterCards.map { it.copy(fusedCaption = "") })
-        } else value
+        // 整理结果只对生成它时的场景有效：画面 / 角色 / 模型变化后置失效标记，
+        // 界面明确提示，而不是悄悄清掉让用户误以为旧结果仍在使用。
+        NaiWorkspaceState.config = updateNaiArrangement(NaiWorkspaceState.config, value)
     }
 
     // 预设：与首页共用同一份保存列表，但 NAI 通道单独记「当前选中」，互不影响
@@ -280,6 +274,18 @@ fun NaiWorkspaceScreen(
         update(current.copy(prompt = next))
     }
 
+    /** 润色结果已经通过当前整理链路验证，不把它误判成用户改动而清掉角色整理状态。 */
+    fun applyPolishedPrompt(next: String) {
+        val current = NaiWorkspaceState.config
+        NaiPromptHistory.push(current.prompt)
+        lastPrompt = next
+        NaiWorkspaceState.config = if (current.characterArrangementInPrompt) {
+            current.copy(prompt = next.trim(), characterArrangementPolished = true)
+        } else {
+            current.copy(prompt = next.trim())
+        }
+    }
+
     fun undoPrompt() {
         val prev = NaiPromptHistory.pop()
         if (prev == null) {
@@ -301,10 +307,12 @@ fun NaiWorkspaceScreen(
         }
     }
     fun runPolish() {
-        if (NaiWorkspaceState.config.prompt.isBlank()) { NaiWorkspaceState.error = "先写点内容再润色"; return }
+        val live = NaiWorkspaceState.config
+        if (live.prompt.isBlank()) { NaiWorkspaceState.error = "先写点内容再润色"; return }
         NaiWorkspaceState.runTask {
             NaiWorkspaceState.stage = "润色中 · ${settings.llmModel.ifBlank { "未配置 LLM" }}"
-            client.polish(c, settings).fold(
+            // 角色整理已经写入主输入框；这里把用户原始描述和整理标签作为同一份输入交给 NAI 润色。
+            client.polish(live, settings).fold(
                 { NaiWorkspaceState.polishCandidate = it },
                 { NaiWorkspaceState.error = it.message }
             )
@@ -317,45 +325,81 @@ fun NaiWorkspaceScreen(
     }
 
     /**
-     * LLM 场景融合：把启用角色的完整设定资料 + 画面提示词交给 LLM 按场景取景推理，
-     * 产物写入各角色的 fusedCaption——生成请求优先使用它，替代机械拼接的角色标签。
+     * 按画面整理角色：把启用角色的设定资料 + 画面提示词交给 LLM 取景推理，
+     * 产物写入各角色 fusedCaption——生成请求优先使用它；不整理则用角色原始标签。
      */
     fun runFuse() {
         val live = NaiWorkspaceState.config
         val enabledIndices = fuseEnabledIndices(live)
         if (enabledIndices.isEmpty()) { NaiWorkspaceState.error = "先启用至少一个角色"; return }
-        if (live.prompt.isBlank()) { NaiWorkspaceState.error = "先写画面提示词再融合"; return }
+        val basePrompt = if (live.characterArrangementInPrompt) {
+            live.characterArrangementBasePrompt.ifBlank { live.prompt }
+        } else live.prompt
+        if (basePrompt.isBlank()) { NaiWorkspaceState.error = "先写画面提示词再整理角色"; return }
         val snapshot = live
         NaiWorkspaceState.runTask {
-            NaiWorkspaceState.stage = "融合中 · ${settings.llmModel.ifBlank { "未配置 LLM" }}"
-            client.fuseCharacters(snapshot, settings, snapshot.prompt).fold({ fused ->
+            NaiWorkspaceState.stage = "整理角色中 · ${settings.llmModel.ifBlank { "未配置 LLM" }}"
+            client.fuseCharacters(snapshot, settings, basePrompt).fold({ fused ->
                 // 空段也占位对齐角色；段数不一致就整体放弃，不能把第 2 段写进别的角色。
                 val segments = mapFusedSegments(fused, enabledIndices.size)
                 if (segments == null) {
-                    NaiWorkspaceState.error = "融合返回 ${fused.split("|").size} 段，与 ${enabledIndices.size} 个启用角色不一致，请重试"
+                    NaiWorkspaceState.error = "整理返回的段数与 ${enabledIndices.size} 个启用角色不一致，请重试"
                     return@fold
                 }
                 // 对账写入：等待期间改了画面或角色资料就放弃，避免旧快照覆盖用户编辑。
                 val merged = applyFusedCaptions(snapshot, NaiWorkspaceState.config, segments)
                 if (merged == null) {
-                    NaiWorkspaceState.error = "融合期间画面或角色已修改，结果已丢弃；请重新融合"
+                    NaiWorkspaceState.error = "整理期间画面或角色已修改，结果已丢弃，请重试"
                     return@fold
                 }
-                update(merged)
-                NaiWorkspaceState.error = null
-                android.widget.Toast.makeText(
-                    context,
-                    "融合完成：${enabledIndices.size} 个角色的场景标签已生成（生成时优先使用）",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
+                // 整理结果不再只藏在角色字段：先把用户原始中文 + 每个角色的整理标签
+                // 合成一份可见的主提示词，再把这整份内容交给 NAI 专属润色。
+                val arrangedPrompt = naiArrangementPrompt(basePrompt, segments)
+                val arranged = merged.copy(
+                    prompt = arrangedPrompt,
+                    characterArrangementStale = false,
+                    characterArrangementInPrompt = true,
+                    characterArrangementPolished = false,
+                    characterArrangementBasePrompt = basePrompt
+                )
+                NaiWorkspaceState.config = arranged
+                client.polish(arranged, settings).fold(
+                    { polished ->
+                        if (polished.isBlank()) {
+                            NaiWorkspaceState.error = "角色已整理并写入输入框，但润色返回为空"
+                        } else {
+                            NaiWorkspaceState.config = arranged.copy(
+                                prompt = polished.trim(),
+                                characterArrangementPolished = true
+                            )
+                            NaiWorkspaceState.error = null
+                        }
+                    },
+                    { e ->
+                        // 不吞掉整理结果：输入框仍保留完整的中文原意 + 角色标签，用户可直接检查并再次润色。
+                        NaiWorkspaceState.error = "角色已整理并写入输入框，但自动润色失败：${e.message ?: "请检查 LLM 配置"}"
+                    }
+                )
             }, { NaiWorkspaceState.error = it.message })
         }
     }
 
-    /** 清除全部融合产物，退回机械拼接模式 */
+    /** 放弃整理结果，恢复原始画面输入，并重新使用角色卡字段；角色资料本身不动。 */
     fun clearFuse() {
         val live = NaiWorkspaceState.config
-        update(live.copy(characterCards = live.characterCards.map { it.copy(fusedCaption = "") }))
+        val restoredPrompt = live.characterArrangementBasePrompt.ifBlank {
+            live.prompt.substringBefore("\n\n【角色整理标签】").trim()
+        }
+        // 这是用户明确点击「使用原始标签」的状态切换，不经过 updateNaiArrangement；
+        // 否则“恢复原始输入”会被误判成一次新的来源编辑，又重新标成失效。
+        NaiWorkspaceState.config = live.copy(
+            prompt = restoredPrompt,
+            characterCards = live.characterCards.map { it.copy(fusedCaption = "") },
+            characterArrangementStale = false,
+            characterArrangementInPrompt = false,
+            characterArrangementPolished = false,
+            characterArrangementBasePrompt = ""
+        )
     }
 
     Column(
@@ -782,7 +826,7 @@ fun NaiWorkspaceScreen(
                                                 )
                                                 Spacer(Modifier.height(2.dp))
                                                 Text(
-                                                    // 融合版优先展示——它才是生成时真正使用的内容
+                                                    // 生成实际使用的内容：整理版优先，否则角色原始标签
                                                     card.fusedCaption.ifBlank { card.caption }
                                                         .ifBlank { "（角色特征为空，到「角色」页补充）" },
                                                     style = MaterialTheme.typography.bodySmall,
@@ -793,7 +837,7 @@ fun NaiWorkspaceScreen(
                                                 if (card.fusedCaption.isNotBlank()) {
                                                     Spacer(Modifier.height(2.dp))
                                                     Text(
-                                                        "✦ 已融合场景（生成时优先使用）",
+                                                        "✦ 已按画面整理 · 本次生成使用",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.primary
                                                     )
@@ -806,27 +850,56 @@ fun NaiWorkspaceScreen(
                                     }
                                 }
                             }
-                            // LLM 场景融合：把角色设定当上下文交给 LLM 按场景推理，替代机械拼接
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(
-                                    onClick = { runFuse() },
-                                    enabled = !NaiWorkspaceState.busy &&
-                                        c.characterCards.any { it.enabled && it.caption.isNotBlank() } &&
-                                        c.prompt.isNotBlank(),
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("✦ 融合到场景") }
-                                OutlinedButton(
-                                    onClick = { clearFuse() },
-                                    enabled = c.characterCards.any { it.fusedCaption.isNotBlank() },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("清除融合") }
+                            // 按画面整理角色：可选增强。入口独立，与「选择人物」分开；成功后状态常驻显示。
+                            val hasFused = c.characterCards.any { it.fusedCaption.isNotBlank() }
+                            Surface(
+                                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .62f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+if (hasFused && !c.characterArrangementStale && c.characterArrangementInPrompt) "已整理并写入主输入框：生成将使用润色后的完整提示词"
+                                         else if (hasFused && !c.characterArrangementStale) "已按当前画面整理角色，生成时优先使用整理结果"
+                                         else if (c.characterArrangementStale) "上次整理已失效：画面或角色修改过，生成将使用角色原始标签"
+                                        else "未整理：生成直接使用角色原始标签。可选整理，让标签贴合当前画面取景。",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = when {
+                                            c.characterArrangementStale -> MaterialTheme.colorScheme.error
+                                            hasFused -> MaterialTheme.colorScheme.primary
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                    if (c.characterArrangementStale) {
+                                        Text(
+                                            "整理依据：${c.prompt.take(60).ifBlank { "（画面提示词为空）" }}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        Button(
+                                            onClick = { runFuse() },
+                                            enabled = !NaiWorkspaceState.busy &&
+                                                c.characterCards.any { it.enabled && it.caption.isNotBlank() } &&
+                                                c.prompt.isNotBlank(),
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text(if (hasFused) "重新整理" else "✦ 按画面整理角色") }
+                                        OutlinedButton(
+                                            onClick = { clearFuse() },
+                                            enabled = hasFused && !NaiWorkspaceState.busy,
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("使用原始标签") }
+                                    }
+                                    Text(
+                                        "整理 = 先把角色标签写入上方输入框，再将你的原始画面描述与角色标签一起润色为 NAI 标签流；角色资料本身不会被修改。",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                            Text(
-                                "融合 = 让 LLM 按当前画面的取景与状态，从角色设定里推理出「此刻可见」的标签段——" +
-                                    "特写不写腿、背影用背面资料、多套服装选一套。比机械拼接更贴近场景。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
                 }
@@ -1502,7 +1575,7 @@ fun NaiWorkspaceScreen(
             title = "润色结果",
             onDismissRequest = { NaiWorkspaceState.polishCandidate = null },
             confirmLabel = "应用",
-            onConfirm = { applyPrompt(text); NaiWorkspaceState.polishCandidate = null },
+            onConfirm = { applyPolishedPrompt(text); NaiWorkspaceState.polishCandidate = null },
             dismissLabel = "取消",
             onDismiss = { NaiWorkspaceState.polishCandidate = null },
             text = { SelectionContainer { Text(text, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) } }

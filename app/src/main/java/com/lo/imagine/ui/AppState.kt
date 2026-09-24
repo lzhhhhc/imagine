@@ -32,6 +32,8 @@ object PreviewStore {
     /** 作品库进入预览时携带的列表与当前位置；非空时预览页支持左右滑动切换 */
     var historyList by mutableStateOf<List<com.lo.imagine.util.HistoryEntry>?>(null)
     var historyIndex by mutableIntStateOf(0)
+    /** 作品被删掉后递增，作品页据此刷新，不依赖重新进入页面 */
+    var historyRevision by mutableIntStateOf(0)
 }
 
 object StudioState {

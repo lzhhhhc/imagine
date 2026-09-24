@@ -123,6 +123,82 @@ fun directorTurnMessage(turn: DirectorStepTurn): String {
     return if (turn.complete || ask.isBlank() || reply.contains(ask)) reply else "$reply\n\n$ask"
 }
 
+/**
+ * The wire stream is still one strict JSON object. This extracts only the user-facing
+ * reply/ask strings while that object is incomplete; navigation state is updated only
+ * after [parseDirectorStepTurn] validates the complete object.
+ */
+fun directorSseDelta(data: String): String {
+    val obj = JsonParser.parseString(data).asJsonObject
+    obj.get("error")?.let { errorValue ->
+        val message = if (errorValue.isJsonObject) errorValue.asJsonObject.get("message")?.asString else errorValue.asString
+        throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "导演流式请求失败")
+    }
+    val choice = obj.getAsJsonArray("choices")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
+        ?: return ""
+    val content = choice.getAsJsonObject("delta")?.get("content") ?: choice.get("text") ?: return ""
+    return when {
+        content.isJsonPrimitive && content.asJsonPrimitive.isString -> content.asString
+        content.isJsonArray -> content.asJsonArray.mapNotNull { part ->
+            part.takeIf { it.isJsonObject }?.asJsonObject?.let { value ->
+                (value.get("text") ?: value.get("content"))
+                    ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+            }
+        }.joinToString("")
+        else -> ""
+    }
+}
+
+fun directorStreamingMessage(raw: String): String {
+    val reply = partialJsonString(raw, "reply").orEmpty().trim()
+    val ask = partialJsonString(raw, "ask").orEmpty().trim()
+    return when {
+        reply.isBlank() -> ask
+        ask.isBlank() || reply.contains(ask) -> reply
+        else -> "$reply\n\n$ask"
+    }
+}
+
+private fun partialJsonString(raw: String, key: String): String? {
+    val marker = "\"$key\""
+    val keyAt = raw.indexOf(marker)
+    if (keyAt < 0) return null
+    var i = keyAt + marker.length
+    while (i < raw.length && raw[i].isWhitespace()) i++
+    if (i >= raw.length || raw[i] != ':') return null
+    i++
+    while (i < raw.length && raw[i].isWhitespace()) i++
+    if (i >= raw.length || raw[i] != '"') return null
+    i++
+    val out = StringBuilder()
+    while (i < raw.length) {
+        val c = raw[i++]
+        when (c) {
+            '"' -> return out.toString()
+            '\\' -> {
+                if (i >= raw.length) return out.toString()
+                when (val escaped = raw[i++]) {
+                    '"', '\\', '/' -> out.append(escaped)
+                    'b' -> out.append('\b')
+                    'f' -> out.append('\u000c')
+                    'n' -> out.append('\n')
+                    'r' -> out.append('\r')
+                    't' -> out.append('\t')
+                    'u' -> {
+                        if (i + 4 > raw.length) return out.toString()
+                        val code = raw.substring(i, i + 4).toIntOrNull(16) ?: return out.toString()
+                        out.append(code.toChar())
+                        i += 4
+                    }
+                    else -> out.append(escaped)
+                }
+            }
+            else -> out.append(c)
+        }
+    }
+    return out.toString()
+}
+
 /** Only confirm() changes the current step. Model output is never navigation authority. */
 data class DirectorInterviewState(
     val stageIndex: Int = 0,

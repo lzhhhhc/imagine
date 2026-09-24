@@ -6,10 +6,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.sp
 import com.lo.imagine.ui.theme.PopRadius
 import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import com.lo.imagine.ui.ImageImportSource
+import com.lo.imagine.ui.rememberImageImport
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -48,14 +46,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -87,6 +83,7 @@ import com.lo.imagine.ui.AspectGeometry
 import com.lo.imagine.ui.CreativeBusyIcon
 import com.lo.imagine.ui.PopNumericField
 import com.lo.imagine.ui.ArkGenerateBar
+import com.lo.imagine.ui.ArkGlassCard
 import com.lo.imagine.ui.celInk
 import com.lo.imagine.ui.celShadow
 import com.lo.imagine.ui.DropdownField
@@ -156,10 +153,10 @@ fun EditScreen(
         if (!editCountFocused) editCountText = EditState.count.coerceIn(1, 4).toString()
     }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetMultipleContents()
+    val picker = rememberImageImport(
+        ImageImportSource.fromId(settings.imageImportSource), multiple = true
     ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        if (uris.isEmpty()) return@rememberImageImport
         scope.launch {
             val fresh = mutableListOf<android.graphics.Bitmap>()
             for (uri in uris) {
@@ -476,10 +473,8 @@ fun EditScreen(
             var showMaskDialog by remember { mutableStateOf(false) }
             // 选完图是否直接进入涂抹（局部重绘触发的选图走这条路径）
             var openMaskAfterPick by remember { mutableStateOf(false) }
-            val maskPicker = rememberLauncherForActivityResult(
-                ActivityResultContracts.GetContent()
-            ) { uri ->
-                if (uri == null) return@rememberLauncherForActivityResult
+            val maskPicker = rememberImageImport(ImageImportSource.fromId(settings.imageImportSource)) { uris ->
+                val uri = uris.firstOrNull() ?: return@rememberImageImport
                 scope.launch {
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     val raw = bytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
@@ -503,15 +498,8 @@ fun EditScreen(
             }
 
             if (EditState.sourceBitmap == null) {
-                Surface(
-                    onClick = {
-                        picker.launch("image/*")
-                    },
-                    shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .62f)),
+                ArkGlassCard(
+                    onClick = { picker.launch() },
                     modifier = Modifier.fillMaxWidth().height(188.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -538,79 +526,45 @@ fun EditScreen(
                     }
                 }
             } else {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .62f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                ArkGlassCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        // ===== 一张图一块大预览：点图直接涂遮罩，遮罩半透明叠在图上 =====
-                        val maskTick = EditState.maskVersion
+                        // ===== 一张图一行：每张可独立涂遮罩 =====
                         EditState.refBitmaps.forEachIndexed { imgIdx, bmp ->
-                            val masked = EditState.refMasks.containsKey(imgIdx)
-                            Surface(
+                            ArkGlassCard(
                                 shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (masked) MaterialTheme.colorScheme.primary.copy(alpha = .7f)
-                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)
-                                ),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(6.dp)
+                                ) {
                                     Box(
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(
-                                                (bmp.width.toFloat() / bmp.height.coerceAtLeast(1))
-                                                    .coerceIn(0.62f, 1.7f)
-                                            )
-                                            .clip(com.lo.imagine.ui.theme.themedShape(PopRadius.field))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .clickable {
-                                                editingMaskIndex = imgIdx
-                                                showMaskDialog = true
-                                            }
+                                            .size(60.dp)
                                     ) {
-                                        Image(
-                                            bitmap = bmp.asImageBitmap(),
-                                            contentDescription = "参考图 ${imgIdx + 1}",
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxSize()
+                                        ImagePreview(
+                                            bitmap = bmp,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentDescription = "参考图 ${imgIdx + 1}"
                                         )
-                                        EditState.refMasks[imgIdx]?.let { mask ->
-                                            key(maskTick) {
-                                                Image(
-                                                    bitmap = mask.asImageBitmap(),
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Fit,
-                                                    alpha = 0.45f,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
-                                        }
                                     }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                "图片 ${imgIdx + 1} · ${bmp.width}×${bmp.height}",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                if (masked) "已涂遮罩 · 点图可继续改" else "点图涂遮罩 · 未涂则整图重绘",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = if (masked) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
+                                    Spacer(Modifier.width(9.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "图片 ${imgIdx + 1}",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            if (EditState.refMasks.containsKey(imgIdx)) "已涂遮罩 · 局部重绘" else "整图重绘 · 可点铅笔涂遮罩",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (EditState.refMasks.containsKey(imgIdx))
+                                                MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    // 小铅笔：涂这张图的遮罩
+                                    Box {
                                         com.lo.imagine.ui.PopIconButton(
                                             icon = PopBrush,
                                             contentDescription = "涂遮罩",
@@ -619,42 +573,57 @@ fun EditScreen(
                                                 showMaskDialog = true
                                             },
                                             modifier = Modifier.size(32.dp),
+                                            iconTint = MaterialTheme.colorScheme.primary,
                                             iconSize = 16.dp
                                         )
-                                        com.lo.imagine.ui.PopIconButton(
-                                            icon = PopTrash,
-                                            contentDescription = "删除这张图",
-                                            onClick = {
-                                                val newMasks = mutableMapOf<Int, android.graphics.Bitmap>()
-                                                EditState.refMasks.forEach { (k, v) ->
-                                                    when {
-                                                        k < imgIdx -> newMasks[k] = v
-                                                        k > imgIdx -> newMasks[k - 1] = v
-                                                    }
-                                                }
-                                                EditState.refMasks.clear()
-                                                EditState.refMasks.putAll(newMasks)
-                                                val next = EditState.refBitmaps.filterIndexed { j, _ -> j != imgIdx }
-                                                EditState.refBitmaps = next
-                                                if (next.isEmpty()) {
-                                                    EditState.reset()
-                                                    sourceUri = null
-                                                }
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            iconSize = 16.dp
-                                        )
+                                        if (EditState.refMasks.containsKey(imgIdx)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(androidx.compose.ui.Alignment.TopEnd)
+                                                    .size(9.dp)
+                                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                                    .background(com.lo.imagine.ui.theme.LocalPopAccents.current.a)
+                                                    .border(
+                                                        1.dp,
+                                                        com.lo.imagine.ui.theme.Ink,
+                                                        androidx.compose.foundation.shape.CircleShape
+                                                    )
+                                            )
+                                        }
                                     }
+                                    Spacer(Modifier.width(4.dp))
+                                    com.lo.imagine.ui.PopIconButton(
+                                        icon = PopTrash,
+                                        contentDescription = "删除这张图",
+                                        onClick = {
+                                            val newMasks = mutableMapOf<Int, android.graphics.Bitmap>()
+                                            EditState.refMasks.forEach { (k, v) ->
+                                                when {
+                                                    k < imgIdx -> newMasks[k] = v
+                                                    k > imgIdx -> newMasks[k - 1] = v
+                                                }
+                                            }
+                                            EditState.refMasks.clear()
+                                            EditState.refMasks.putAll(newMasks)
+                                            val next = EditState.refBitmaps.filterIndexed { j, _ -> j != imgIdx }
+                                            EditState.refBitmaps = next
+                                            if (next.isEmpty()) {
+                                                EditState.reset()
+                                                sourceUri = null
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp),
+                                        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        iconSize = 16.dp
+                                    )
                                 }
                             }
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
                         }
                         // 底部：新增图片（追加，不顶替）
-                        Surface(
-                            onClick = { picker.launch("image/*") },
+                        ArkGlassCard(
+                            onClick = { picker.launch() },
                             shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -693,7 +662,7 @@ fun EditScreen(
                     onChangeImage = {
                         showMaskDialog = false
                         openMaskAfterPick = true
-                        maskPicker.launch("image/*")
+                        maskPicker.launch()
                     }
                 )
             }
@@ -701,13 +670,8 @@ fun EditScreen(
             SectionTitle("快捷修改")
             var showPresetDialog by remember { mutableStateOf(false) }
             var presetCategory by remember { mutableStateOf("全部") }
-            Surface(
+            ArkGlassCard(
                 onClick = { showPresetDialog = true },
-                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                tonalElevation = 1.dp,
-                shadowElevation = 1.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .58f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -795,8 +759,8 @@ fun EditScreen(
                 ?: QUALITY_TIERS[1]
             var outputExpanded by remember { mutableStateOf(false) }
             Spacer(Modifier.height(12.dp))
-            Surface(onClick = { outputExpanded = !outputExpanded }, shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-                color = MaterialTheme.colorScheme.surface, border = BorderStroke(.7.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            ArkGlassCard(onClick = { outputExpanded = !outputExpanded },
+                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("输出设置", fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Text("${editAspect.label} · ${editQuality.label} · ${EditState.outputPixels()} · ${EditState.count} 张", fontSize = 10.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -927,18 +891,10 @@ private fun EditPromptAction(
     enabled: Boolean = true,
     accent: Boolean = false
 ) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
+    ArkGlassCard(
+        onClick = if (enabled) onClick else null,
+        accent = accent,
         shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-        color = if (accent) LocalPopAccents.current.a else MaterialTheme.colorScheme.surface,
-        contentColor = if (accent) com.lo.imagine.ui.theme.Ink else MaterialTheme.colorScheme.onSurfaceVariant,
-        tonalElevation = if (accent) 1.dp else 0.dp,
-        border = BorderStroke(
-            1.2.dp,
-            if (accent) com.lo.imagine.ui.theme.Ink
-            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)
-        ),
         modifier = modifier.height(42.dp)
     ) {
         Row(
@@ -1015,7 +971,7 @@ private fun PresetDialog(
                                 Text(
                                     cat,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) Ink else MaterialTheme.colorScheme.onSurface,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                                 )
                             }

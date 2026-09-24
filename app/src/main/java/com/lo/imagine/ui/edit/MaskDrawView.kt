@@ -22,7 +22,8 @@ import kotlin.math.roundToInt
 class MaskDrawView(
     context: Context,
     private val source: Bitmap,
-    initialMask: Bitmap? = null
+    initialMask: Bitmap? = null,
+    private val maskColor: Int = android.graphics.Color.RED
 ) : View(context) {
 
     companion object {
@@ -50,13 +51,13 @@ class MaskDrawView(
         alpha = 128
     }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.RED
+        color = maskColor
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.RED
+        color = maskColor
         style = Paint.Style.FILL
     }
     private val segmentPath = Path()

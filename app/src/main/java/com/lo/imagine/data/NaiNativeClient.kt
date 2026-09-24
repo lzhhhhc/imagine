@@ -42,7 +42,15 @@ data class NaiWorkspaceConfig(
     val variety: Boolean = true, val decrisp: Boolean = false,
     val straightAlpha: Boolean = false,
     val llmInstruction: String = NAI_DEFAULT_LLM_INSTRUCTION,
-    val temperature: String = "0.7", val maxTokens: String = "1000"
+    val temperature: String = "0.7", val maxTokens: String = "1000",
+    /** 持久化失效提示，避免修改场景后误以为仍在使用上次整理。 */
+    val characterArrangementStale: Boolean = false,
+    /** 角色整理结果已嵌入主提示词；此时不再重复发送角色卡字段。 */
+    val characterArrangementInPrompt: Boolean = false,
+    /** 主输入框中的整理内容已经通过 NAI 润色；未完成时禁止直接生成。 */
+    val characterArrangementPolished: Boolean = false,
+    /** 嵌入整理结果前的原始画面输入，用于「使用原始标签」恢复。 */
+    val characterArrangementBasePrompt: String = ""
 )
 
 /** 角色卡：参考项目的正背面 + SFW/NSFW 矩阵结构。 */
@@ -157,17 +165,47 @@ fun applyNaiReplace(text: String, rules: List<Pair<String, String>>): String =
  * 否则与全局人数冲突、角色特征被稀释（st-chatu8 生产环境同样处理）。
  */
 internal fun naiCharacterFieldCaption(card: NaiCharacterPrompt): String {
-    // 有 LLM 场景融合版时优先使用（按场景取景推理的产物），否则退回机械拼接版。
+    // 有 LLM 场景整理版时优先使用（按场景取景推理的产物），否则退回机械拼接版。
     // 统一 trim，避免返回空白融合段时被误判为有效角色。
     val base = card.fusedCaption.trim().ifBlank { card.caption.trim() }
-    return base.replace("1girl", "girl", ignoreCase = true)
+    val cleaned = stripNsfwWhenSafe(base, card)
+    return cleaned.replace("1girl", "girl", ignoreCase = true)
         .replace("1boy", "boy", ignoreCase = true)
         .trim()
 }
 
-/** 请求与预览共用的角色筛选：必须启用，且最终角色段非空。 */
+/**
+ * 本地硬保险：角色状态不是 NSFW 时，把整理结果里与该卡 NSFW 资料字段重合的标签剔除。
+ * LLM 偶尔会无视约束把 NSFW 词带进 SFW 角色——这里在请求组装与展示的同一入口兜底。
+ */
+internal fun stripNsfwWhenSafe(text: String, card: NaiCharacterPrompt): String {
+    if (card.bodyMode.equals("nsfw", ignoreCase = true) || text.isBlank()) return text
+    val nsfwWords = listOf(card.upperNsfw, card.upperNsfwBack, card.lowerNsfw, card.lowerNsfwBack)
+        .flatMap { naiSegments(it) }
+        .map { it.trim().lowercase() }
+        .filter { it.isNotBlank() }
+        .distinct()
+    if (nsfwWords.isEmpty()) return text
+    return naiSegments(text).filterNot { segment ->
+        val key = segment.trim().lowercase()
+        nsfwWords.any { nsfw -> key == nsfw || key.startsWith("$nsfw ") || key.endsWith(" $nsfw") || " $nsfw " in " $key " }
+    }.joinToString(", ")
+}
+
+/**
+ * 请求与预览共用的角色筛选：必须启用，且最终角色段非空。
+ * 角色整理一旦写入主输入框，角色段已经是主提示词的一部分，不能再通过
+ * v4_prompt / characterPrompts 重复发送，否则会出现双重角色描述。
+ */
 internal fun activeNaiCharacterCards(c: NaiWorkspaceConfig): List<NaiCharacterPrompt> =
-    c.characterCards.filter { it.enabled && naiCharacterFieldCaption(it).isNotBlank() }
+    if (c.characterArrangementInPrompt) emptyList()
+    else c.characterCards.filter { it.enabled && naiCharacterFieldCaption(it).isNotBlank() }
+
+/** 把角色整理结果并入用户的主画面描述，供输入框显示并交给后续润色。 */
+internal fun naiArrangementPrompt(basePrompt: String, segments: List<String>): String =
+    listOf(basePrompt.trim(), segments.joinToString(", ") { it.trim() }.trim())
+        .filter(String::isNotBlank)
+        .joinToString(", ")
 
 /** 融合输入的角色集合：机械拼接 caption 非空的启用角色（融合就是要替换这个 caption 的产物）。 */
 internal fun fuseEnabledIndices(c: NaiWorkspaceConfig): List<Int> =
@@ -188,6 +226,21 @@ internal fun mapFusedSegments(raw: String, enabledCount: Int): List<String>? {
  * 任务等待期间用户可能继续编辑；用旧快照整体覆盖会吞掉这些编辑。
  * 返回 null 表示来源已变化，调用方应放弃写入并提示重新融合。
  */
+internal fun updateNaiArrangement(old: NaiWorkspaceConfig, next: NaiWorkspaceConfig): NaiWorkspaceConfig {
+    // 整理来源 = 画面提示词 + 模型 + 角色资料（不含整理结果本身）。
+    val sourcesUnchanged = old.prompt == next.prompt && old.model == next.model &&
+        old.characterCards.map { it.copy(fusedCaption = "") } == next.characterCards.map { it.copy(fusedCaption = "") }
+    if (sourcesUnchanged) return next
+    // 来源变了：旧整理结果一律失效；仍有旧结果时顺带清空，避免悄悄生效。
+    return next.copy(
+        characterArrangementStale = true,
+        characterArrangementInPrompt = false,
+        characterArrangementPolished = false,
+        characterArrangementBasePrompt = "",
+        characterCards = next.characterCards.map { it.copy(fusedCaption = "") }
+    )
+}
+
 internal fun applyFusedCaptions(
     snapshot: NaiWorkspaceConfig,
     current: NaiWorkspaceConfig,
@@ -207,6 +260,9 @@ internal fun applyFusedCaptions(
 
 fun naiNativePayload(c: NaiWorkspaceConfig, actualSeed: Long): Map<String, Any?> {
     require(c.model in NAI_NATIVE_MODELS) { "请选择支持的 NAI 模型" }
+    require(!c.characterArrangementInPrompt || c.characterArrangementPolished) {
+        "角色整理结果尚未完成 NAI 润色，请先完成润色或使用原始标签"
+    }
     val w = c.width.toIntOrNull(); val h = c.height.toIntOrNull()
     require(w != null && h != null && w in 64..2048 && h in 64..2048 && w % 64 == 0 && h % 64 == 0) { "宽高应为 64–2048 内的 64 倍数" }
     val steps = c.steps.toIntOrNull(); val scale = c.scale.toDoubleOrNull(); val rescale = c.rescale.toDoubleOrNull()
@@ -521,10 +577,14 @@ class NaiNativeClient {
         val system = naiTaskInstructions(NaiTask.FUSE, profile)
         // 角色资料按「给 LLM 读」的格式组织：完整矩阵（正/背面、上下身、多套服装），
         // 由 LLM 按场景推理取舍——这正是把角色卡当上下文而不是当标签的关键区别。
+        // NSFW 字段只在该角色当前状态为 nsfw 时提供；SFW/custom 角色根本不喂 NSFW 资料，
+        // 否则 LLM 会把 NSFW 标签挑进整理结果，开关切回 SFW 也压不掉。
         val characterDossier = cards.joinToString("\n\n") { card ->
+            val nsfwAllowed = card.bodyMode.equals("nsfw", ignoreCase = true)
             buildString {
                 append("角色：").append(card.name.ifBlank { "未命名" })
                 if (card.nameEn.isNotBlank()) append("（").append(card.nameEn).append("）")
+                append("\n状态：").append(if (nsfwAllowed) "NSFW（可使用 NSFW 资料字段）" else "SFW（禁止输出任何 NSFW 内容）")
                 append("\n特征：").append(card.traits.ifBlank { "无" })
                 append("\n五官（正面）：").append(card.face.ifBlank { "无" })
                 if (card.faceBack.isNotBlank()) append("\n五官（背面）：").append(card.faceBack)
@@ -532,10 +592,12 @@ class NaiNativeClient {
                 if (card.upperSfwBack.isNotBlank()) append("\n上半身SFW（背面）：").append(card.upperSfwBack)
                 append("\n下半身SFW（正面）：").append(card.lowerSfw.ifBlank { "无" })
                 if (card.lowerSfwBack.isNotBlank()) append("\n下半身SFW（背面）：").append(card.lowerSfwBack)
-                if (card.upperNsfw.isNotBlank()) append("\n上半身NSFW（正面）：").append(card.upperNsfw)
-                if (card.upperNsfwBack.isNotBlank()) append("\n上半身NSFW（背面）：").append(card.upperNsfwBack)
-                if (card.lowerNsfw.isNotBlank()) append("\n下半身NSFW（正面）：").append(card.lowerNsfw)
-                if (card.lowerNsfwBack.isNotBlank()) append("\n下半身NSFW（背面）：").append(card.lowerNsfwBack)
+                if (nsfwAllowed) {
+                    if (card.upperNsfw.isNotBlank()) append("\n上半身NSFW（正面）：").append(card.upperNsfw)
+                    if (card.upperNsfwBack.isNotBlank()) append("\n上半身NSFW（背面）：").append(card.upperNsfwBack)
+                    if (card.lowerNsfw.isNotBlank()) append("\n下半身NSFW（正面）：").append(card.lowerNsfw)
+                    if (card.lowerNsfwBack.isNotBlank()) append("\n下半身NSFW（背面）：").append(card.lowerNsfwBack)
+                }
                 if (card.outfit.isNotBlank()) append("\n服装：").append(card.outfit)
                 if (card.prompt.isNotBlank()) append("\n补充：").append(card.prompt)
             }

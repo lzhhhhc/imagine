@@ -17,6 +17,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.lo.imagine.data.*
+import com.lo.imagine.ui.ArkGlassCard
 import com.lo.imagine.ui.DropdownField
 import com.lo.imagine.ui.PopAlertDialog
 import com.lo.imagine.ui.PopTextField
@@ -52,7 +53,7 @@ internal fun DirectorProductionDialog(
     var input by remember(shot, aspect, selected, resolution) { mutableStateOf<VideoInput?>(null) }
     var inputError by remember(shot, aspect, selected, resolution) { mutableStateOf<String?>(null) }
     val protocol = VideoProtocol.fromId(config?.protocolId)
-    val supported = VideoProtocol.entries.filter { it.engineId == engine.id }
+    val supported = VideoProtocol.entries.filter { it.engineId == null || it.engineId == engine.id }
 
     LaunchedEffect(Unit) {
         try {
@@ -151,7 +152,7 @@ internal fun DirectorProductionDialog(
         config == null -> "请先在设置 → 视频 API 填写连接"
         videoApiConfigurationError(config!!) != null -> videoApiConfigurationError(config!!)
         protocol == null -> "请选择视频服务协议"
-        protocol.engineId != engine.id -> "视频协议与 ${engine.label} 工程不一致，请选择对应协议和模型"
+        protocol.engineId != null && protocol.engineId != engine.id -> "视频协议与 ${engine.label} 工程不一致，请选择对应协议和模型"
         shot == null -> "请先添加分镜"
         inputError != null -> inputError
         input == null -> "正在读取并检查参考图…"
@@ -247,7 +248,7 @@ internal fun DirectorProductionDialog(
                     val ownTasks = tasks.filter { it.engineId == engine.id }.asReversed()
                     if (ownTasks.isNotEmpty()) item { Text("制作记录", style = MaterialTheme.typography.titleMedium) }
                     items(ownTasks, key = { it.localId }) { task ->
-                        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = themedShape(PopRadius.field)) {
+                        ArkGlassCard(shape = themedShape(PopRadius.field), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("${task.shotLabel} · ${task.seconds}s · ${task.aspect} · ${taskStatus(task.status)}", fontWeight = FontWeight.SemiBold)
                                 Text(task.model, style = MaterialTheme.typography.labelSmall)

@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.content.ContentValues
 import androidx.core.content.FileProvider
@@ -217,6 +218,32 @@ object ImageUtils {
      * 纯色遮罩 PNG 压缩率极高，全尺寸也不会撑大请求体。
      * 用硬件 Canvas + XFERMODE 整体绘制，避免逐像素循环。
      */
+    /**
+     * 把白色笔迹直接印到原图上，供 ComfyUI LoadImage 上传。
+     * 未涂区域保持原图像素；笔迹按透明度叠白，不另传遮罩文件。
+     */
+    fun bakeMaskOntoImage(source: Bitmap, mask: Bitmap): Bitmap {
+        val strokes = if (mask.width != source.width || mask.height != source.height) {
+            Bitmap.createScaledBitmap(mask, source.width, source.height, true)
+        } else mask
+        val out = source.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = android.graphics.Canvas(out)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(
+                android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        0f, 0f, 0f, 0f, 255f,
+                        0f, 0f, 0f, 0f, 255f,
+                        0f, 0f, 0f, 0f, 255f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+            )
+        }
+        canvas.drawBitmap(strokes, 0f, 0f, paint)
+        return out
+    }
+
     fun encodeMaskPng(mask: Bitmap, srcWidth: Int, srcHeight: Int): ByteArray {
         val strokes = if (mask.width != srcWidth || mask.height != srcHeight) {
             Bitmap.createScaledBitmap(mask, srcWidth, srcHeight, true)
@@ -240,6 +267,27 @@ object ImageUtils {
         BitmapFactory.decodeFile(file.path)
     } catch (e: Exception) {
         null
+    }
+
+    /** 系统相册里本应用图片所在的文档目录：手机文件夹 Pictures/Imagine。 */
+    fun publicImageFolderDocumentId(): String = "primary:${Environment.DIRECTORY_PICTURES}/Imagine"
+
+    /**
+     * 用系统文件管理器打开 Pictures/Imagine。打不开就返回 false，不改走应用内页面。
+     */
+    fun openPublicImageFolder(context: Context): Boolean {
+        val uri = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            publicImageFolderDocumentId()
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return runCatching {
+            context.startActivity(intent)
+            true
+        }.getOrDefault(false)
     }
 
     /**

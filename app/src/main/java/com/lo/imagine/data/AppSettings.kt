@@ -92,6 +92,8 @@ data class AppSettings(
     val upscaleEnabled: Boolean = false,
         /** 出图后自动写入系统相册（Pictures/Imagine）：默认开启，作品库不受影响 */
     val autoSaveGallery: Boolean = true,
+    /** 导入图片的来源：local 本地作品 / ask 每次询问 / gallery 系统相册。 */
+    val imageImportSource: String = "ask",
     /** 「界面气质」选择：cool_white / dark_tactic / soft_illust；空 = 默认冷白科技 */
     val moodKey: String = "",
     /**
@@ -150,6 +152,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
         /** v2：默认策略改为「保留模型真实输出」；旧键（upscale_enabled，曾默认 true）不再读取 */
         val UPSCALE_ENABLED = androidx.datastore.preferences.core.booleanPreferencesKey("upscale_enabled_v2")
         val AUTO_SAVE_GALLERY = androidx.datastore.preferences.core.booleanPreferencesKey("auto_save_gallery")
+        val IMAGE_IMPORT_SOURCE = stringPreferencesKey("image_import_source")
         val CUSTOM_PRESETS = stringPreferencesKey("custom_presets_json")
         val LLM_CUSTOM_PRESETS = stringPreferencesKey("custom_llm_presets_json")
         val DIRECTOR_ASSETS = stringPreferencesKey("director_assets_json")
@@ -194,6 +197,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             themeMode = ThemeMode.fromId(p[Keys.THEME_MODE] ?: ThemeMode.ARKNIGHTS_LIGHT.id).id,
             upscaleEnabled = p[Keys.UPSCALE_ENABLED] ?: false,
             autoSaveGallery = p[Keys.AUTO_SAVE_GALLERY] ?: true,
+            imageImportSource = p[Keys.IMAGE_IMPORT_SOURCE] ?: "ask",
             reversePromptTemplate = p[Keys.REVERSE_PROMPT] ?: "",
             polishPromptTemplate = p[Keys.POLISH_PROMPT] ?: "",
             moodKey = p[Keys.MOOD_KEY] ?: "",
@@ -260,12 +264,14 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
 
     /** Each control updates only its existing key, so rapid independent selections compose safely. */
     suspend fun saveInterface(themeMode: String? = null, moodKey: String? = null,
-        upscaleEnabled: Boolean? = null, autoSaveGallery: Boolean? = null) {
+        upscaleEnabled: Boolean? = null, autoSaveGallery: Boolean? = null,
+        imageImportSource: String? = null) {
         store.edit { p ->
             themeMode?.let { p[Keys.THEME_MODE] = ThemeMode.fromId(it).id }
             moodKey?.let { p[Keys.MOOD_KEY] = UiMood.fromId(it).id }
             upscaleEnabled?.let { p[Keys.UPSCALE_ENABLED] = it }
             autoSaveGallery?.let { p[Keys.AUTO_SAVE_GALLERY] = it }
+            imageImportSource?.let { p[Keys.IMAGE_IMPORT_SOURCE] = it }
         }
     }
 
@@ -292,6 +298,7 @@ class SettingsRepository internal constructor(private val store: DataStore<Prefe
             p[Keys.THEME_MODE] = ThemeMode.fromId(settings.themeMode).id
             p[Keys.UPSCALE_ENABLED] = settings.upscaleEnabled
             p[Keys.AUTO_SAVE_GALLERY] = settings.autoSaveGallery
+            p[Keys.IMAGE_IMPORT_SOURCE] = settings.imageImportSource
             p[Keys.REVERSE_PROMPT] = settings.reversePromptTemplate
             p[Keys.POLISH_PROMPT] = settings.polishPromptTemplate
             p[Keys.MOOD_KEY] = settings.moodKey

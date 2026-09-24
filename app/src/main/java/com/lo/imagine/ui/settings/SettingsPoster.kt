@@ -25,14 +25,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lo.imagine.ui.*
-import com.lo.imagine.ui.theme.LocalUiMood
-import com.lo.imagine.data.UiMood
 
 internal enum class SettingsSection(val title: String, val code: String, val index: Int) {
     APPEARANCE("外观", "APPEARANCE", 1),
     OUTPUT("生成", "OUTPUT", 2),
-    CHANNELS("连接", "CHANNELS", 3),
-    ABOUT("关于", "ABOUT", 4)
+    LIBRARY("图库", "LIBRARY", 3),
+    CHANNELS("连接", "CHANNELS", 4),
+    ABOUT("关于", "ABOUT", 5)
 }
 
 /** Keep the last section selected at the bottom, even when it is shorter than the viewport. */
@@ -52,6 +51,7 @@ internal object SettingsPosterInk {
 internal fun SettingsPoster(
     appearance: @Composable () -> Unit,
     output: @Composable () -> Unit,
+    library: @Composable () -> Unit,
     channels: @Composable () -> Unit,
     about: @Composable () -> Unit
 ) {
@@ -79,6 +79,7 @@ internal fun SettingsPoster(
                             when (active) {
                                 SettingsSection.APPEARANCE -> appearance()
                                 SettingsSection.OUTPUT -> output()
+                                SettingsSection.LIBRARY -> library()
                                 SettingsSection.CHANNELS -> channels()
                                 SettingsSection.ABOUT -> about()
                             }
@@ -97,6 +98,7 @@ private fun SettingsRailItem(section: SettingsSection, selected: Boolean, wide: 
     val icon = when (section) {
         SettingsSection.APPEARANCE -> RefIcons.Palette
         SettingsSection.OUTPUT -> RefIcons.Frame
+        SettingsSection.LIBRARY -> RefIcons.Folder
         SettingsSection.CHANNELS -> PopPlug
         SettingsSection.ABOUT -> PopInfo
     }
@@ -129,22 +131,16 @@ private fun SettingsRailItem(section: SettingsSection, selected: Boolean, wide: 
 private fun PosterSection(section: SettingsSection, railWidth: androidx.compose.ui.unit.Dp,
     first: Boolean = false, last: Boolean = false, content: @Composable () -> Unit) {
     val c = MaterialTheme.colorScheme
-    val dark = c.background.luminance() < .5f
     val shape = themedShape(PopRadius.sheet)
-    val panelColors = if (dark) c else c.copy(onSurfaceVariant =
-        if (LocalUiMood.current == UiMood.SOFT_ILLUST) Color(0xFF6F5966) else Color(0xFF52616F))
-    val glass = c.surfaceContainer.copy(alpha = .97f)
-    val edge = if (dark) Color.White.copy(alpha = .16f) else Color.White.copy(alpha = .65f)
-    MaterialTheme(colorScheme = panelColors) {
+    val glass = c.surface.copy(alpha = .82f)
     Column(Modifier.fillMaxWidth().padding(start = railWidth + 4.dp, end = 8.dp)
-        .clip(shape).background(glass).border(.7.dp, edge, shape).padding(horizontal = 16.dp)) {
+        .clip(shape).background(glass).border(.7.dp, c.outlineVariant, shape).padding(horizontal = 16.dp)) {
         if (!first) SettingsRule()
         Spacer(Modifier.height(16.dp))
         SettingsSectionHeading(section)
         Spacer(Modifier.height(18.dp))
         content()
         Spacer(Modifier.height(if (last) 24.dp else 16.dp))
-    }
     }
 }
 

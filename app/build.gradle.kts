@@ -11,8 +11,8 @@ android {
         applicationId = "com.lo.imagine"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.16"
+        versionCode = 34
+        versionName = "1.33"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

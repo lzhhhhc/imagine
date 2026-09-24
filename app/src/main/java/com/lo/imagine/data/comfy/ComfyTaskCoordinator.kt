@@ -44,7 +44,7 @@ class ComfyTaskCoordinator(
                 "这台服务器有提交结果待确认的任务，请先确认或标记已核对，再提交新任务"
             }
             val prepared = ComfyWorkflowEngine.prepare(workflow)
-            val types = prepared.graph.entrySet().map { it.value.asJsonObject.get("class_type").asString }.distinct()
+            val types = ComfyWorkflowEngine.enabledClassTypes(prepared.graph)
             val schemas = types.associateWith { type -> backend.nodeInfo(connection, type) }
             ComfyWorkflowEngine.validateWithInfo(prepared.graph, schemas)
             var job = ComfyJob(providerId = connection.providerId, origin = origin, workflowName = workflow.name,

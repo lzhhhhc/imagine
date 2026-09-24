@@ -90,7 +90,7 @@ fun HistoryScreen(onPreview: () -> Unit) {
         entries = ImageUtils.listHistory(context)
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(PreviewStore.historyRevision) { refresh() }
 
     fun exitSelection() {
         selecting = false
@@ -238,9 +238,9 @@ fun HistoryScreen(onPreview: () -> Unit) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = com.lo.imagine.ui.theme.Ink,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         shape = com.lo.imagine.ui.theme.themedShape(PopRadius.card),
-                        border = BorderStroke(1.5.dp, com.lo.imagine.ui.theme.Ink),
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier.size(76.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {

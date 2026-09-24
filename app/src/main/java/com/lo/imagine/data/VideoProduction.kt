@@ -3,6 +3,7 @@ package com.lo.imagine.data
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -16,11 +17,12 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
 
-/** Explicit wire protocol and capability version; never inferred from a model name. */
-enum class VideoProtocol(val id: String, val label: String, val engineId: String) {
+/** Explicit wire protocol. engineId is null when the protocol is usable with any director engine. */
+enum class VideoProtocol(val id: String, val label: String, val engineId: String?) {
     GROK("grok", "Grok 标准", "grok"),
     GROK15("grok15", "Grok 1.5 · 首尾帧与参考图", "grok"),
-    SEEDANCE("seedance", "Seedance 2.x · Ark", "seedance");
+    SEEDANCE("seedance", "Seedance 2.x · Ark", "seedance"),
+    COMPATIBLE("compatible", "通用兼容", null);
     companion object { fun fromId(id: String?): VideoProtocol? = entries.find { it.id == id } }
 }
 
@@ -35,14 +37,24 @@ data class VideoInput(
     val resolution: String = "720p"
 )
 
+private val grokAspects = listOf("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3")
+private val seedanceAspects = listOf("16:9", "9:16", "1:1", "4:3", "3:4", "21:9")
+
 fun videoInputError(protocol: VideoProtocol, input: VideoInput): String? = when {
     input.prompt.isBlank() -> "请填写本镜画面提示词"
-    input.seconds !in (if (protocol == VideoProtocol.SEEDANCE) 4..15 else 1..15) ->
-        if (protocol == VideoProtocol.SEEDANCE) "Seedance 2.x 每镜需 4–15 秒，请调整本镜时长" else "Grok 每镜需 1–15 秒，请调整本镜时长"
-    input.aspect !in (if (protocol == VideoProtocol.SEEDANCE) listOf("16:9", "9:16", "1:1", "4:3", "3:4", "21:9")
-        else listOf("16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3")) -> "当前协议不支持 ${input.aspect} 画幅"
+    input.seconds !in (if (protocol == VideoProtocol.SEEDANCE) 4..15 else 1..15) -> when (protocol) {
+        VideoProtocol.SEEDANCE -> "Seedance 2.x 每镜需 4–15 秒，请调整本镜时长"
+        VideoProtocol.COMPATIBLE -> "通用兼容每镜需 1–15 秒，请调整本镜时长"
+        else -> "Grok 每镜需 1–15 秒，请调整本镜时长"
+    }
+    input.aspect !in when (protocol) {
+        VideoProtocol.SEEDANCE -> seedanceAspects
+        VideoProtocol.COMPATIBLE -> (grokAspects + seedanceAspects).distinct()
+        else -> grokAspects
+    } -> "当前协议不支持 ${input.aspect} 画幅"
     input.resolution !in listOf("480p", "720p") -> "当前制作入口支持 480p 或 720p"
-    input.references.size > (if (protocol == VideoProtocol.SEEDANCE) 9 else 7) -> "参考图过多：${protocol.label} 最多 ${if (protocol == VideoProtocol.SEEDANCE) 9 else 7} 张"
+    input.references.size > (if (protocol == VideoProtocol.GROK || protocol == VideoProtocol.GROK15) 7 else 9) ->
+        "参考图过多：${protocol.label} 最多 ${if (protocol == VideoProtocol.GROK || protocol == VideoProtocol.GROK15) 7 else 9} 张"
     protocol == VideoProtocol.GROK && input.lastFrame != null -> "尾帧需要选择 Grok 1.5 协议与对应模型"
     protocol == VideoProtocol.GROK && input.firstFrame != null && input.references.isNotEmpty() -> "Grok 标准不能同时传首帧和参考图；请选择 Grok 1.5 与对应模型，或明确移除其中一类"
     protocol == VideoProtocol.SEEDANCE && input.references.isNotEmpty() && (input.firstFrame != null || input.lastFrame != null) ->
@@ -60,7 +72,11 @@ fun videoRequestBody(protocol: VideoProtocol, model: String, input: VideoInput):
     val prompt = buildString {
         append(input.prompt.trim())
         input.references.forEachIndexed { i, ref ->
-            append("\n").append(if (protocol == VideoProtocol.SEEDANCE) "@Image${i + 1}" else "<IMAGE_${i + 1}>")
+            append("\n").append(when (protocol) {
+            VideoProtocol.SEEDANCE -> "@Image${i + 1}"
+            VideoProtocol.COMPATIBLE -> "参考图${i + 1}"
+            else -> "<IMAGE_${i + 1}>"
+        })
                 .append("：").append(ref.label)
         }
     }
@@ -89,9 +105,13 @@ fun videoEndpoint(base: String, protocol: VideoProtocol, taskId: String? = null)
     val url = base.trim().trimEnd('/').toHttpUrl()
     require(url.query == null && url.fragment == null && url.username.isEmpty() && url.password.isEmpty()) { "视频基础地址无效" }
     val path = url.encodedPath.trimEnd('/')
-    val version = if (protocol == VideoProtocol.SEEDANCE) "/api/v3" else "/v1"
-    require(path.isEmpty() || path.endsWith(version)) { "基础地址应为服务根地址或以 $version 结尾" }
-    val builder = url.newBuilder().encodedPath(if (path.isEmpty()) version else path)
+    val version = when (protocol) {
+        VideoProtocol.SEEDANCE -> "/api/v3"
+        VideoProtocol.COMPATIBLE -> null
+        else -> "/v1"
+    }
+    require(version == null || path.isEmpty() || path.endsWith(version)) { "基础地址应为服务根地址或以 $version 结尾" }
+    val builder = url.newBuilder().encodedPath(if (path.isEmpty()) version ?: "/v1" else path)
     if (protocol == VideoProtocol.SEEDANCE) builder.addPathSegments("contents/generations/tasks")
     else builder.addPathSegment("videos").apply { if (taskId == null) addPathSegment("generations") }
     if (taskId != null) {
@@ -106,21 +126,52 @@ data class VideoTaskResult(val status: String, val url: String? = null) {
 }
 
 fun parseVideoTask(protocol: VideoProtocol, json: JsonObject): VideoTaskResult {
-    val status = json.get("status")?.asString ?: error("视频任务缺少状态")
-    val normalized = when (status) {
-        "pending", "queued", "running" -> "pending"
-        "done", "succeeded" -> "done"
-        "failed", "expired", "cancelled" -> status
+    val status = (json.get("status") ?: json.get("state"))?.asString ?: error("视频任务缺少状态")
+    val normalized = when (status.lowercase()) {
+        "pending", "queued", "running", "processing", "in_progress" -> "pending"
+        "done", "succeeded", "success", "completed" -> "done"
+        "failed", "error" -> "failed"
+        "expired" -> "expired"
+        "cancelled", "canceled" -> "cancelled"
         else -> error("视频服务返回未知状态：${status.take(40)}")
     }
     val url = if (normalized == "done") {
-        val value = if (protocol == VideoProtocol.SEEDANCE) json.getAsJsonObject("content")?.get("video_url")?.asString
-            else json.getAsJsonObject("video")?.get("url")?.asString
+        val value = when (protocol) {
+            VideoProtocol.SEEDANCE -> json.getAsJsonObject("content")?.get("video_url")?.asString
+            VideoProtocol.COMPATIBLE -> json.getAsJsonObject("video")?.get("url")?.asString
+                ?: json.getAsJsonObject("content")?.get("video_url")?.asString
+                ?: json.get("video_url")?.asString
+            else -> json.getAsJsonObject("video")?.get("url")?.asString
+        }
         require(!value.isNullOrBlank()) { "任务已完成但没有视频地址" }
         require(value.toHttpUrl().scheme == "https" || value.toHttpUrl().scheme == "http")
         value
     } else null
     return VideoTaskResult(normalized, url)
+}
+
+/** Model list is the versioned root beside the submit path. A failed derivation does not try another URL. */
+fun videoModelsEndpoint(base: String, protocol: VideoProtocol): HttpUrl {
+    val submit = videoEndpoint(base, protocol)
+    val tail = if (protocol == VideoProtocol.SEEDANCE) "contents/generations/tasks" else "videos/generations"
+    val path = submit.encodedPath.trimEnd('/')
+    require(path.endsWith("/$tail")) { "视频地址无法换算模型列表" }
+    return submit.newBuilder().encodedPath(path.removeSuffix("/$tail")).addPathSegment("models").build()
+}
+
+suspend fun fetchVideoModels(settings: VideoApiSettings): Result<List<String>> {
+    val protocol = VideoProtocol.fromId(settings.protocolId)
+        ?: return Result.failure(IllegalArgumentException("请先选择视频协议"))
+    videoApiConfigurationError(settings.copy(model = settings.model.ifBlank { "model" }))
+        ?.let { return Result.failure(IllegalArgumentException(it)) }
+    return try {
+        VideoClient().models(Request.Builder().url(videoModelsEndpoint(settings.baseUrl, protocol))
+            .header("Authorization", "Bearer ${settings.apiKey.trim()}").get().build())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(IllegalStateException(e.message ?: "拉取视频模型失败"))
+    }
 }
 
 class VideoClient(private val client: OkHttpClient = OkHttpClient.Builder()
@@ -143,13 +194,40 @@ class VideoClient(private val client: OkHttpClient = OkHttpClient.Builder()
         val text = response.body?.string() ?: error("视频服务返回为空")
         JsonParser.parseString(text).asJsonObject
     } }
+    suspend fun models(request: Request): Result<List<String>> = withContext(Dispatchers.IO) {
+        try {
+            execute(request).use { response ->
+                val text = response.body?.string().orEmpty()
+                check(response.isSuccessful) { "视频模型列表 HTTP ${response.code}" }
+                val root = JsonParser.parseString(text).asJsonObject
+                val rows = root.getAsJsonArray("data") ?: root.getAsJsonArray("models")
+                    ?: return@use Result.failure(IllegalStateException("视频服务没有返回模型列表"))
+                val ids = rows.mapNotNull { row ->
+                    row.takeIf { it.isJsonObject }?.asJsonObject?.let { item ->
+                        item.get("id")?.asString ?: item.get("name")?.asString
+                    }?.trim()?.takeIf { it.isNotEmpty() }
+                }.distinct()
+                if (ids.isEmpty()) Result.failure(IllegalStateException("视频服务没有返回可用模型，请手动填写模型 ID"))
+                else Result.success(ids)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(e.message ?: "拉取视频模型失败"))
+        }
+    }
     suspend fun submit(settings: VideoApiSettings, protocol: VideoProtocol, input: VideoInput): String {
         videoApiConfigurationError(settings)?.let { throw IllegalArgumentException(it) }
         val body = videoRequestBody(protocol, settings.model, input)
         val result = json(Request.Builder().url(videoEndpoint(settings.baseUrl, protocol))
             .header("Authorization", "Bearer ${settings.apiKey.trim()}")
             .post(body.toRequestBody("application/json".toMediaType())).build())
-        return result.get(if (protocol == VideoProtocol.SEEDANCE) "id" else "request_id")?.asString
+        val idField = when (protocol) {
+            VideoProtocol.SEEDANCE -> "id"
+            VideoProtocol.COMPATIBLE -> listOf("request_id", "id", "task_id").firstOrNull { result.get(it)?.asString?.isNotBlank() == true } ?: "request_id"
+            else -> "request_id"
+        }
+        return result.get(idField)?.asString
             ?.takeIf { it.isNotBlank() } ?: error("提交后未返回任务编号；请在服务商后台核对，勿直接重复提交")
     }
     suspend fun query(settings: VideoApiSettings, protocol: VideoProtocol, id: String): VideoTaskResult {

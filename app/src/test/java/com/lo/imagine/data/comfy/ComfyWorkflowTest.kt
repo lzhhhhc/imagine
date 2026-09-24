@@ -23,7 +23,7 @@ internal fun sampleWorkflow(): ComfyWorkflow = sampleGraph().let {
 class ComfyWorkflowTest {
     @Test fun `standard workflow suggests direct prompt links and preserves original graph`() {
         val w = sampleWorkflow()
-        assertEquals(listOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE, ParameterKind.SEED), w.parameters.map { it.kind })
+        assertEquals(listOf(ParameterKind.PROMPT, ParameterKind.NEGATIVE, ParameterKind.SEED, ParameterKind.WIDTH, ParameterKind.HEIGHT), w.parameters.map { it.kind })
         assertEquals(InputTarget("2", "text"), w.parameters.first { it.kind == ParameterKind.PROMPT }.targets.single())
         val copy = w.copy(parameters = w.parameters.map { if (it.kind == ParameterKind.PROMPT) it.copy(value = "a blue vase\n\"on a table\"") else it })
         val prepared = ComfyWorkflowEngine.prepare(copy)
@@ -162,7 +162,28 @@ class ComfyWorkflowTest {
         assertEquals("ref.png", suggested.single { it.kind == ParameterKind.IMAGE }.value)
         val two = one.deepCopy().apply { add("9", get("8").deepCopy()) }
         assertTrue(ComfyWorkflowEngine.suggest(two).none { it.kind == ParameterKind.IMAGE })
-        assertTrue(suggested.none { it.kind in setOf(ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.WIDTH, ParameterKind.BATCH) })
+        assertEquals(listOf(InputTarget("4", "width")), suggested.single { it.kind == ParameterKind.WIDTH }.targets)
+        assertEquals("512", suggested.single { it.kind == ParameterKind.WIDTH }.value)
+        assertEquals(listOf(InputTarget("4", "height")), suggested.single { it.kind == ParameterKind.HEIGHT }.targets)
+        val resized = sampleGraph().apply {
+            add("9", JsonParser.parseString("""{"class_type":"CustomLatentResize","inputs":{"samples":["4",0],"width":768,"height":1024}}"""))
+            getAsJsonObject("5").getAsJsonObject("inputs").add("latent_image", JsonParser.parseString("""["9",0]"""))
+        }
+        val resizedSuggested = ComfyWorkflowEngine.suggest(resized)
+        assertEquals(InputTarget("9", "width"), resizedSuggested.single { it.kind == ParameterKind.WIDTH }.targets.single())
+        assertEquals("1024", resizedSuggested.single { it.kind == ParameterKind.HEIGHT }.value)
+        assertTrue(suggested.none { it.kind in setOf(ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.BATCH) })
+    }
+    @Test fun `photo formats are recognized and unsafe names become uploadable`() {
+        assertEquals("png", comfyImageKind(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)))
+        assertEquals("jpg", comfyImageKind(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())))
+        val webp = byteArrayOf(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50)
+        assertEquals("webp", comfyImageKind(webp))
+        assertNull(comfyImageKind("ftypheic".toByteArray()))
+        assertEquals("cat 空格.png", comfyUploadFilename("cat 空格.png", "png"))
+        assertEquals("photo.jpg", comfyUploadFilename("photo.HEIC", "jpg"))
+        assertEquals("photo.jpeg", comfyUploadFilename("photo.jpeg", "jpg"))
+        assertEquals("reference.png", comfyUploadFilename("\"bad\nname\".heic", "png"))
     }
     @Test fun `subfolder reference image values are preserved for later uploads`() {
         assertEquals("sub/图片 空格.png", UploadedImage("图片 空格.png", "sub").inputValue)
@@ -186,6 +207,93 @@ class ComfyWorkflowTest {
         val plain = JsonParser.parseString("""{"input":{"required":{"model":[["available"]]}}}""").asJsonObject
         assertThrows(IllegalArgumentException::class.java) { ComfyWorkflowEngine.validateWithInfo(graph, mapOf("Custom" to plain)) }
     }
+    @Test fun `model analysis keeps the real size and drops invented bindings`() {
+        val graph = sampleGraph().apply {
+            add("9", JsonParser.parseString("""{"class_type":"CustomLatentResize","inputs":{"samples":["4",0],"width":768,"height":1024}}"""))
+            getAsJsonObject("5").getAsJsonObject("inputs").add("latent_image", JsonParser.parseString("""["9",0]"""))
+        }
+        val digest = ComfyWorkflowEngine.digest(graph)
+        assertTrue(digest.startsWith("5 KSampler"))
+        assertTrue(digest.indexOf("9 CustomLatentResize") < digest.indexOf("4 EmptyLatentImage"))
+        val reply = """
+            分析如下：
+            {"bindings":[
+              {"kind":"PROMPT","label":"画面提示词","reason":"正向文本","targets":[{"node":"2","input":"text"}]},
+              {"kind":"WIDTH","targets":[{"node":4,"input":"width"}]},
+              {"kind":"HEIGHT","targets":[{"node":9,"input":"height"}]},
+              {"kind":"CFG","targets":[{"node":"5","input":"cfg"}]},
+              {"kind":"STEPS","targets":[{"node":"5","input":"steps"}]},
+              {"kind":"SAMPLER","targets":[{"node":"5","input":"sampler_name"}]},
+              {"kind":"PROMPT","targets":[{"node":"3","input":"text"}]},
+              {"kind":"IMAGE","targets":[{"node":"7","input":"images"}]},
+              {"kind":"WIDTH","targets":[{"node":"5","input":"positive"}]}
+            ]}
+        """.trimIndent()
+        val bindings = ComfyWorkflowEngine.bindingsFromAnalysis(graph, reply)
+        assertEquals(listOf(ParameterKind.PROMPT, ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.WIDTH, ParameterKind.HEIGHT, ParameterKind.SAMPLER), bindings.map { it.kind })
+        assertEquals(InputTarget("2", "text"), bindings.single { it.kind == ParameterKind.PROMPT }.targets.single())
+        assertEquals(InputTarget("4", "width"), bindings.single { it.kind == ParameterKind.WIDTH }.targets.single())
+        assertEquals(InputTarget("9", "height"), bindings.single { it.kind == ParameterKind.HEIGHT }.targets.single())
+        assertEquals("euler", bindings.single { it.kind == ParameterKind.SAMPLER }.value)
+        assertThrows(IllegalArgumentException::class.java) { ComfyWorkflowEngine.bindingsFromAnalysis(graph, "没有 JSON") }
+        assertTrue(ComfyWorkflowEngine.bindingsFromAnalysis(graph, """{"bindings":[]}""").isEmpty())
+        val nodes = ComfyWorkflowEngine.nodesFromAnalysis(graph, """{"nodes":[5,"9",99,"6"]}""")
+        assertEquals(listOf("5", "9"), nodes)
+        val panel = ComfyWorkflowEngine.panelParameters(graph, "5")
+        assertEquals(listOf("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"), panel.map { it.targets.single().input })
+        assertEquals(setOf(ParameterKind.SEED, ParameterKind.STEPS, ParameterKind.CFG, ParameterKind.SAMPLER, ParameterKind.CUSTOM), panel.map { it.kind }.toSet())
+        assertEquals(setOf("2", "3", "4", "5", "9"), ComfyWorkflowEngine.nodesFromAnalysis(graph, reply).toSet())
+        assertThrows(IllegalArgumentException::class.java) { ComfyWorkflowEngine.nodesFromAnalysis(graph, "没有 JSON") }
+    }
+    @Test fun `one card can bind several matching fields`() {
+        val graph = ComfyWorkflowEngine.parse("""{
+          "1":{"class_type":"KSamplerAdvanced","inputs":{"noise_seed":1,"steps":8,"cfg":1}},
+          "2":{"class_type":"KSamplerAdvanced","inputs":{"noise_seed":2,"steps":8,"cfg":1.1}},
+          "3":{"class_type":"SaveImage","inputs":{"filename_prefix":"ComfyUI","images":["1",0]}}
+        }""")
+        val seeds = graph.entrySet().mapNotNull { (id, node) ->
+            node.asJsonObject.getAsJsonObject("inputs").get("noise_seed")?.takeIf { it.isJsonPrimitive }?.let { InputTarget(id, "noise_seed") }
+        }
+        val card = WorkflowParameter(label = "两段种子", kind = ParameterKind.SEED, targets = seeds, value = "42")
+        val prepared = ComfyWorkflowEngine.prepare(ComfyWorkflow(name = "多绑定", graph = graph, parameters = listOf(card), outputNodes = listOf("3")))
+        assertEquals(2, seeds.size)
+        assertEquals("42", prepared.graph.getAsJsonObject("1").getAsJsonObject("inputs").get("noise_seed").asString)
+        assertEquals("42", prepared.graph.getAsJsonObject("2").getAsJsonObject("inputs").get("noise_seed").asString)
+        assertEquals("8", prepared.graph.getAsJsonObject("1").getAsJsonObject("inputs").get("steps").asString)
+    }
+    @Test fun `bypass nodes keep their mode and disabled outputs are blocked until re-enabled`() {
+        val graph = sampleGraph()
+        assertEquals(7, ComfyWorkflowEngine.enabledNodeCount(graph))
+        assertTrue(ComfyWorkflowEngine.nodeEnabled(graph, "5"))
+        graph.getAsJsonObject("5").addProperty("mode", 2)
+        assertEquals(2, ComfyWorkflowEngine.nodeMode(graph, "5"))
+        assertFalse(ComfyWorkflowEngine.nodeEnabled(graph, "5"))
+        assertEquals(6, ComfyWorkflowEngine.enabledNodeCount(graph))
+        // 停用节点上的参数面板仍然完整；普通节点停用不阻止 prepare（服务器端跳过执行）
+        val panel = ComfyWorkflowEngine.panelParameters(graph, "5")
+        assertEquals(6, panel.size)
+        ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = panel, outputNodes = listOf("7")))
+        // 输出节点被停用必须先启用
+        graph.getAsJsonObject("7").addProperty("mode", 4)
+        assertEquals(4, ComfyWorkflowEngine.nodeMode(graph, "7"))
+        assertEquals(5, ComfyWorkflowEngine.enabledNodeCount(graph))
+        assertThrows(IllegalArgumentException::class.java) {
+            ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = graph, parameters = emptyList(), outputNodes = listOf("7")))
+        }
+        val fixed = ComfyWorkflowEngine.setNodeMode(graph, "7", ComfyWorkflowEngine.MODE_ENABLED)
+        assertEquals(0, ComfyWorkflowEngine.nodeMode(fixed, "7"))
+        assertTrue(ComfyWorkflowEngine.nodeEnabled(fixed, "7"))
+        ComfyWorkflowEngine.prepare(ComfyWorkflow(graph = fixed, parameters = emptyList(), outputNodes = listOf("7")))
+        // setNodeMode 是副本操作，原图保持不变
+        assertEquals(4, ComfyWorkflowEngine.nodeMode(graph, "7"))
+    }
+    @Test fun `disabled nodes do not require server schemas`() {
+        val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"MissingCustomNode","inputs":{"value":"x"}}}""")
+        graph.getAsJsonObject("1").addProperty("mode", ComfyWorkflowEngine.MODE_BYPASS)
+        assertEquals(emptyList<String>(), ComfyWorkflowEngine.enabledClassTypes(graph))
+        ComfyWorkflowEngine.validateWithInfo(graph, emptyMap())
+    }
+
     @Test fun `server choices and numeric bounds are respected`() {
         val graph = ComfyWorkflowEngine.parse("""{"1":{"class_type":"Custom","inputs":{"model":"missing","steps":2}}}""")
         val schema = JsonParser.parseString("""{"input":{"required":{"model":[["available"]],"steps":["INT",{"min":1,"max":10}]}}}""").asJsonObject

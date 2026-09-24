@@ -151,6 +151,18 @@ class ComfyRepository(private val store: ComfyStore) {
             try { writes.withLock { ensureReady(); store.saveLibrary(library()) } } catch (e: Exception) { report(e) }
         }
     }
+    /** 生成页节点卡的手动排序，立刻落盘：读到失效节点 ID 时静默丢弃，不让旧数据卡死工作台。 */
+    fun reorderPanels(workflowId: String, panelOrder: List<String>) {
+        if (!mutable.value.ready) return
+        val known = mutable.value.workflows.find { it.id == workflowId }?.graph?.keySet().orEmpty()
+        val order = panelOrder.filter { it in known }.distinct()
+        change { s -> s.copy(workflows = s.workflows.map { w -> if (w.id != workflowId) w else w.copy(panelOrder = order) }) }
+        draftSave?.cancel()
+        draftSave = scope.launch {
+            delay(400)
+            try { writes.withLock { ensureReady(); store.saveLibrary(library()) } } catch (e: Exception) { report(e) }
+        }
+    }
     suspend fun flushDraft() = withContext(Dispatchers.IO) { writes.withLock { ensureReady(); store.saveLibrary(library()) } }
     suspend fun saveJob(value: ComfyJob) = withContext(Dispatchers.IO) { writes.withLock {
         ensureReady(); store.saveJob(value)

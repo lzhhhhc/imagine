@@ -13,6 +13,15 @@ class DirectorProductionTest {
         assertTrue(result.script().contains("分镜2"))
         assertEquals("调整动作", result.shots.first().copy(prompt = "调整动作").prompt)
     }
+    @Test fun `wrapped reply and whole-number durations still match the confirmed plan`() {
+        val wrapped = "分镜如下：\n```json\n" + storyboard
+            .replace("\"seconds\":3", "\"seconds\":3.0")
+            .replace("\"seconds\":2", "\"seconds\":\"2\"")
+            .replace("9:16", "9：16") + "\n```"
+        val result = parseDirectorStoryboard(wrapped, 5, "9:16")
+        assertEquals(listOf("3", "2"), result.shots.map { it.seconds })
+        assertEquals("午后窗台，安静环境声", result.summary)
+    }
     @Test fun `invalid model output cannot change confirmed parameters`() {
         listOf(storyboard.replace("9:16", "16:9"), storyboard.replace("\"seconds\":2", "\"seconds\":4"),
             storyboard.replace("\"seconds\":3", "\"seconds\":3.5"),

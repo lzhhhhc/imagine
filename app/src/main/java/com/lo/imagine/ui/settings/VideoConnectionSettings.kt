@@ -1,17 +1,25 @@
 package com.lo.imagine.ui.settings
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import com.lo.imagine.data.SettingsRepository
 import com.lo.imagine.data.VideoProtocol
+import com.lo.imagine.data.fetchVideoModels
 import com.lo.imagine.ui.DropdownField
 import com.lo.imagine.data.VideoApiSettings
 import com.lo.imagine.data.apiEndpointError
@@ -41,9 +50,14 @@ import com.lo.imagine.data.apiKeyFormatError
 import com.lo.imagine.data.videoApiConfigurationError
 import com.lo.imagine.ui.InfoHint
 import com.lo.imagine.ui.PIcon
+import com.lo.imagine.ui.PopBusySpinner
 import com.lo.imagine.ui.PopKey
 import com.lo.imagine.ui.PopPlug
+import com.lo.imagine.ui.PopRefresh
 import com.lo.imagine.ui.PopTextField
+import com.lo.imagine.ui.celInk
+import com.lo.imagine.ui.theme.PopRadius
+import com.lo.imagine.ui.theme.themedShape
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
@@ -106,6 +120,17 @@ private fun VideoConnectionDialog(
     var saveError by remember { mutableStateOf<String?>(null) }
     var presetError by remember { mutableStateOf<String?>(null) }
     var hint by remember { mutableStateOf<String?>(null) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var fetching by remember { mutableStateOf(false) }
+    var fetchError by remember { mutableStateOf<String?>(null) }
+    fun fetchModels() {
+        fetching = true
+        fetchError = null
+        scope.launch {
+            fetchVideoModels(draft).onSuccess { models = it }.onFailure { fetchError = it.message ?: "拉取失败" }
+            fetching = false
+        }
+    }
     val writes = remember { Mutex() }
     val ready = videoApiConfigurationError(draft) == null && VideoProtocol.fromId(draft.protocolId) != null
 
@@ -170,7 +195,10 @@ private fun VideoConnectionDialog(
             selectedLabel = draft.activePresetName ?: "自定义连接",
             selectedDetail = "视频连接单独保存，可切换不同服务与模型",
             options = draft.presets.map { it.name },
-            onPick = { index -> draft.presets.getOrNull(index)?.let { edit(draft.selectPreset(it.name)) } },
+            onPick = { index -> draft.presets.getOrNull(index)?.let { selected ->
+            edit(draft.selectPreset(selected.name)); models = emptyList(); fetchError = null
+            if (selected.apiKey.isNotBlank()) fetchModels()
+        } },
             newLabel = "＋新建空白预设…",
             onCreateBlank = { edit(draft.createBlankPreset()) },
             activeName = draft.activePresetName,
@@ -185,13 +213,17 @@ private fun VideoConnectionDialog(
         )
         presetError?.let { VideoSettingsError(it) }
         Spacer(Modifier.height(12.dp))
-        SettingsConsoleGroup(title = "视频协议", subtitle = "按服务商文档选择，与模型能力一致") {
+        SettingsConsoleGroup(title = "视频协议", subtitle = "厂商协议按文档选择；通用兼容可填写任意视频地址和模型") {
             DropdownField(selected = VideoProtocol.fromId(draft.protocolId)?.label ?: "请选择协议",
                 options = VideoProtocol.entries.map { it.label },
                 onSelect = { label -> edit(draft.copy(protocolId = VideoProtocol.entries.first { it.label == label }.id)) })
         }
         Spacer(Modifier.height(12.dp))
-        SettingsConsoleGroup(title = "服务端点", subtitle = "Grok 填根地址或 /v1；Seedance Ark 填根地址或 /api/v3") {
+        SettingsConsoleGroup(title = "服务端点", subtitle = when (VideoProtocol.fromId(draft.protocolId)) {
+            VideoProtocol.SEEDANCE -> "Seedance Ark 填根地址或 /api/v3"
+            VideoProtocol.COMPATIBLE -> "填写服务根地址、/v1，或中转给出的完整前缀"
+            else -> "Grok 填根地址或 /v1；通用兼容也接受带路径前缀的地址"
+        }) {
             PopTextField(
                 value = draft.baseUrl,
                 onValueChange = { edit(draft.copy(baseUrl = it)) },
@@ -222,7 +254,9 @@ private fun VideoConnectionDialog(
             apiKeyFormatError(draft.apiKey)?.let { VideoSettingsError(it) }
         }
         Spacer(Modifier.height(12.dp))
-        SettingsConsoleGroup(title = "视频模型", subtitle = "直接输入服务商提供的模型 ID") {
+        SettingsConsoleGroup(title = "视频模型", subtitle = "从当前视频地址拉取，也可以直接输入模型 ID") {
+            VideoModelPicker(draft.model, models, fetching, !saving && !fetching, { edit(draft.copy(model = it)) }, ::fetchModels)
+            fetchError?.let { VideoSettingsError(it) }
             PopTextField(
                 value = draft.model,
                 onValueChange = { edit(draft.copy(model = it)) },
@@ -234,6 +268,35 @@ private fun VideoConnectionDialog(
         saveError?.let { VideoSettingsError(it) }
         if (saving) Text("正在保存…", style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+    }
+}
+
+@Composable
+private fun VideoModelPicker(
+    value: String,
+    models: List<String>,
+    fetching: Boolean,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    val options = (models + value.trim()).filter { it.isNotBlank() }.distinct()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (options.isNotEmpty()) {
+            DropdownField(value.ifBlank { "未选择模型" }, options, onSelect = { if (enabled) onSelect(it) }, menuHeight = 220, modifier = Modifier.weight(1f))
+        } else {
+            Surface(shape = themedShape(PopRadius.chip), color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.weight(1f)) {
+                Text("尚未拉取模型", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp))
+            }
+        }
+        Surface(onClick = onRefresh, enabled = enabled, shape = themedShape(PopRadius.chip),
+            color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.5.dp, celInk()), modifier = Modifier.size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                if (fetching) PopBusySpinner(Modifier.size(17.dp))
+                else PIcon(PopRefresh, "拉取视频模型", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+        }
     }
 }
 

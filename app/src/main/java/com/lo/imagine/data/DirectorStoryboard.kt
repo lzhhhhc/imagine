@@ -17,9 +17,46 @@ data class DirectorStoryboard(val summary: String, val shots: List<DirectorShot>
     }.joinToString("\n\n")
 }
 
+/** The model often writes a sentence or code fence around the one JSON object. */
+fun directorJsonObject(raw: String): com.google.gson.JsonObject {
+    val text = raw.trim()
+    val start = text.indexOf('{')
+    val end = text.lastIndexOf('}')
+    require(start >= 0 && end > start) { "分镜格式无法解析，请重试" }
+    return try {
+        JsonParser.parseString(text.substring(start, end + 1)).asJsonObject
+    } catch (_: Exception) {
+        throw IllegalArgumentException("分镜格式无法解析，请重试")
+    }
+}
+
+/** A relay may return the same reply as plain text or as a list of text parts. */
+fun directorReplyText(raw: Any?): String = when (raw) {
+    is String -> raw
+    is List<*> -> raw.mapNotNull { part ->
+        when (part) {
+            is String -> part
+            is Map<*, *> -> (part["text"] ?: part["content"]) as? String
+            else -> null
+        }
+    }.joinToString("\n")
+    else -> ""
+}.trim()
+
+private fun wholeSeconds(value: com.google.gson.JsonElement?): Int? {
+    if (value == null || !value.isJsonPrimitive) return null
+    val primitive = value.asJsonPrimitive
+    val number = when {
+        primitive.isNumber -> primitive.asDouble
+        primitive.isString -> primitive.asString.trim().toDoubleOrNull()
+        else -> null
+    } ?: return null
+    if (number % 1.0 != 0.0) return null
+    return number.toInt()
+}
+
 fun parseDirectorStoryboard(raw: String, totalSeconds: Int, aspect: String): DirectorStoryboard {
-    val obj = JsonParser.parseString(raw.trim().removePrefix("```json").removePrefix("```")
-        .removeSuffix("```").trim()).asJsonObject
+    val obj = directorJsonObject(raw)
     fun text(key: String): String {
         val value = obj.get(key)
         require(value != null && value.isJsonPrimitive && value.asJsonPrimitive.isString && value.asString.isNotBlank()) {
@@ -27,17 +64,15 @@ fun parseDirectorStoryboard(raw: String, totalSeconds: Int, aspect: String): Dir
         }
         return value.asString.trim()
     }
-    require(text("aspect_ratio") == aspect) { "分镜画幅与确认参数不一致，请重试" }
+    val returnedAspect = text("aspect_ratio").replace('：', ':').replace(" ", "")
+    require(returnedAspect == aspect) { "分镜画幅与确认参数不一致，请重试" }
     val summary = text("summary")
     val array = obj.getAsJsonArray("shots") ?: error("导演未返回分镜列表")
     require(array.size() in 1..30) { "分镜数量须为 1–30" }
     val shots = array.mapIndexed { index, item ->
         val shot = item.asJsonObject
-        val duration = shot.get("seconds")
-        require(duration != null && duration.isJsonPrimitive && duration.asJsonPrimitive.isNumber &&
-            Regex("[1-9][0-9]*").matches(duration.asString)) { "分镜${index + 1}时长须为整数秒" }
-        val seconds = duration.asString.toIntOrNull()
-        require(seconds != null && seconds in 1..120) { "分镜${index + 1}时长无效" }
+        val seconds = wholeSeconds(shot.get("seconds"))
+        require(seconds != null && seconds in 1..120) { "分镜${index + 1}时长须为整数秒" }
         val prompt = shot.get("prompt")
         require(prompt != null && prompt.isJsonPrimitive && prompt.asJsonPrimitive.isString && prompt.asString.isNotBlank()) {
             "分镜${index + 1}缺少画面提示词"

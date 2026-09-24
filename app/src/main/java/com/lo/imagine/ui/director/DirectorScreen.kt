@@ -29,9 +29,6 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import com.lo.imagine.ui.theme.PopRadius
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -110,6 +107,7 @@ import com.lo.imagine.data.ASPECT_OPTIONS
 import com.lo.imagine.data.DirectorAsset
 import com.lo.imagine.data.ImageRepository
 import com.lo.imagine.data.SettingsRepository
+import com.lo.imagine.ui.ArkGlassCard
 import com.lo.imagine.ui.AspectGeometry
 import com.lo.imagine.ui.DropdownField
 import com.lo.imagine.ui.Panel
@@ -212,6 +210,7 @@ private fun DirectorWorkspace(
     var chatMessages by rememberSaveable(stateSaver = chatBubbleSaver) { mutableStateOf(listOf(ChatBubble(false, com.lo.imagine.data.directorOpening()))) }
     var chatInput by rememberSaveable { mutableStateOf("") }
     var chatThinking by remember { mutableStateOf(false) }
+    var streamingReply by remember { mutableStateOf("") }
     var interview by rememberSaveable(stateSaver = interviewSaver) { mutableStateOf(DirectorInterviewState()) }
     var generationError by rememberSaveable { mutableStateOf<String?>(null) }
     var chatDone by rememberSaveable { mutableStateOf(false) }
@@ -292,6 +291,7 @@ private fun DirectorWorkspace(
         val previous = interview.summaries[index]
         interview = interview.revisit(index)
         chatDone = false
+        streamingReply = ""
         polished = ""
         error = null
         generationError = null
@@ -357,16 +357,23 @@ private fun DirectorWorkspace(
             try {
                 val refs = withContext(Dispatchers.IO) { readDirectorAssets(currentAssets()) }
                 repository.directorStepTurn(settings, engine, submittedState, transcript,
-                    characterDesc, envDesc, durationSec, videoAspect, refs.map { it.base64 }, referenceLegend(refs))
+                    characterDesc, envDesc, durationSec, videoAspect, refs.map { it.base64 }, referenceLegend(refs)) { raw ->
+                        val visible = com.lo.imagine.data.directorStreamingMessage(raw)
+                        withContext(Dispatchers.Main.immediate) {
+                            if (visible != streamingReply) streamingReply = visible
+                        }
+                    }
                     .onSuccess { turn ->
                         interview = submittedState.receive(turn)
                         turn.durationSec?.let { durationSec = it }
                         turn.videoAspect?.let { videoAspect = it }
                         chatInput = ""
+                        streamingReply = ""
                         chatMessages = chatMessages + ChatBubble(false,
                             com.lo.imagine.data.directorTurnMessage(turn))
                     }
                     .onFailure { e ->
+                        streamingReply = ""
                         chatInput = text
                         error = "本轮未完成：${e.message ?: "请求失败"}。回答已保留，重试后继续。"
                     }
@@ -428,13 +435,14 @@ private fun DirectorWorkspace(
         replaceShots(shots.map { if (it.id == id) transform(it) else it })
     }
 
-    /** 从相册注入首帧参考图（缩到 1280 长边存 filesDir/director_shots/） */
-    val shotPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
+    /** 按设置的导入来源注入首尾帧（缩到 1280 长边存 filesDir/director_shots/） */
+    val shotPicker = com.lo.imagine.ui.rememberImageImport(
+        com.lo.imagine.ui.ImageImportSource.fromId(settings.imageImportSource)
+    ) { uris ->
+        val uri = uris.firstOrNull()
         val target = pendingInjectTarget
         pendingInjectTarget = null
-        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        if (uri == null || target == null) return@rememberImageImport
         val (targetId, isEnd) = target
         scope.launch {
             val path = withContext(Dispatchers.IO) {
@@ -600,9 +608,7 @@ private fun DirectorWorkspace(
                         revisitStage((interview.stageIndex - 1).coerceAtLeast(0))
                     }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("上一步", fontSize = 12.sp) }
                 }
-                Surface(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(.7.dp, MaterialTheme.colorScheme.outlineVariant),
+                ArkGlassCard(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
                     modifier = Modifier.fillMaxWidth().weight(1f)) {
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -613,11 +619,8 @@ private fun DirectorWorkspace(
                                     Text(if (msg.mine) "你" else "导演 · ${engine.label}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Surface(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
-                                        color = if (msg.mine) MaterialTheme.colorScheme.primaryContainer
-                                            else MaterialTheme.colorScheme.surfaceContainerLow,
-                                        contentColor = if (msg.mine) MaterialTheme.colorScheme.onPrimaryContainer
-                                            else MaterialTheme.colorScheme.onSurface) {
+                                    ArkGlassCard(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
+                                        accent = msg.mine, modifier = Modifier.fillMaxWidth()) {
                                         androidx.compose.foundation.text.selection.SelectionContainer {
                                             Text(msg.text, style = MaterialTheme.typography.bodyMedium,
                                                 modifier = Modifier.padding(12.dp))
@@ -631,11 +634,26 @@ private fun DirectorWorkspace(
                                 }
                             }
                         }
+                        if (chatThinking && streamingReply.isNotBlank()) item(key = "streaming-reply") {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("导演 · ${engine.label}", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    ArkGlassCard(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
+                                        modifier = Modifier.fillMaxWidth()) {
+                                        androidx.compose.foundation.text.selection.SelectionContainer {
+                                            Text(streamingReply, style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite })
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if (chatThinking) item(key = "thinking") {
                             Row(Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 PopBusySpinner(Modifier.size(16.dp))
-                                Text(if (interview.isReview) "正在整理成片提示词…" else "正在梳理你的回答…",
+                                Text(if (interview.isReview) "正在整理成片提示词…" else if (streamingReply.isBlank()) "正在等待导演回应…" else "正在接收…",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -674,7 +692,7 @@ private fun DirectorWorkspace(
                         }
                     }
                 }
-                LaunchedEffect(chatMessages.size, chatThinking, interview.stageReady, interview.isReview, error, generationError, compact) {
+                LaunchedEffect(chatMessages.size, streamingReply.length, chatThinking, interview.stageReady, interview.isReview, error, generationError, compact) {
                     if (chatMessages.isNotEmpty()) {
                         val target = when {
                             chatThinking || error != null || generationError != null -> chatMessages.size
@@ -752,7 +770,7 @@ private fun DirectorWorkspace(
             onDismiss = { showStoryboard = false }, onAdd = ::addShot,
             onUpdate = { next -> updateShot(next.id) { next } },
             onDelete = { id -> replaceShots(shots.filterNot { it.id == id }) },
-            onPickFrame = { id, end -> pendingInjectTarget = id to end; shotPicker.launch("image/*") },
+            onPickFrame = { id, end -> pendingInjectTarget = id to end; shotPicker.launch() },
             onGenerateFrame = ::generateFirstFrame,
             onCompose = ::composeStoryboard,
             onAspect = { aspectDialog = true },
@@ -1071,9 +1089,10 @@ private fun AddAssetDialog(
     var pickedBytes by remember { mutableStateOf<ByteArray?>(null) }
     var reversing by remember { mutableStateOf(false) }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+    val picker = com.lo.imagine.ui.rememberImageImport(
+        com.lo.imagine.ui.ImageImportSource.fromId(settings.imageImportSource)
+    ) { uris ->
+        val uri = uris.firstOrNull()
         if (uri != null) {
             scope.launch(Dispatchers.IO) {
                 val bmp = runCatching {
@@ -1098,9 +1117,7 @@ private fun AddAssetDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(
                     onClick = {
-                        picker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                        picker.launch()
                     },
                     shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1307,14 +1324,7 @@ fun MaterialLibraryDialog(
                         modifier = Modifier.fillMaxWidth().height(360.dp)
                     ) {
                         items(filtered) { a ->
-                            Surface(
-                                shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field),
-                                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f)
-                                )
-                            ) {
+                            ArkGlassCard(shape = com.lo.imagine.ui.theme.themedShape(PopRadius.field)) {
                                 Column {
                                     AsyncImage(
                                         model = File(a.imagePath),
@@ -1437,9 +1447,8 @@ private fun AssetPill(
     onClick: () -> Unit
 ) {
     val c = MaterialTheme.colorScheme
-    Surface(onClick = onClick, shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
-        color = if (selected) c.primaryContainer else c.surface,
-        border = BorderStroke(.8.dp, if (selected) c.primary else c.outlineVariant),
+    ArkGlassCard(onClick = onClick, accent = selected,
+        shape = com.lo.imagine.ui.theme.themedShape(PopRadius.chip),
         modifier = modifier.heightIn(min = 48.dp)) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {

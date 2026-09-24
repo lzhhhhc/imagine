@@ -309,6 +309,7 @@ fun ImagineApp(
             } else {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
             }
+        ProvideArkRoute(backdropRoute) {
         NavHost(
             navController = navController,
             startDestination = initialStudioMode,
@@ -329,8 +330,8 @@ fun ImagineApp(
                     onPreview = { navController.navigate("preview") }, onSelectMode = ::selectMode)
             }
             composable("comfy") {
-                com.lo.imagine.ui.studio.comfy.ComfyWorkspaceScreen(settings,
-                    onSelectMode = ::selectMode, onPreview = { navController.navigate("preview") })
+com.lo.imagine.ui.studio.comfy.ComfyWorkspaceScreen(settings, imageRepository,
+                     onSelectMode = ::selectMode, onPreview = { navController.navigate("preview") })
             }
              composable("edit") {
                 EditScreen(
@@ -362,6 +363,7 @@ fun ImagineApp(
                     onBack = { navController.popBackStack() }
                 )
             }
+        }
         }
         }
     }

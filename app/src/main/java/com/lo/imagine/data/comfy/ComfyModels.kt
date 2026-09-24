@@ -20,7 +20,7 @@ data class ComfyConnection(
 }
 enum class ParameterKind(val label: String) {
     PROMPT("画面提示词"), NEGATIVE("负面提示词"), IMAGE("参考图片"), SEED("种子"), STEPS("步数"),
-    CFG("CFG"), WIDTH("宽度"), HEIGHT("高度"), BATCH("批量"), CUSTOM("其他参数")
+    CFG("CFG"), WIDTH("宽度"), HEIGHT("高度"), BATCH("批量"), SAMPLER("采样器"), CUSTOM("其他参数")
 }
 
 data class InputTarget(val nodeId: String = "", val input: String = "") {
@@ -34,6 +34,18 @@ data class WorkflowParameter(
     val value: String = "",
     val randomSeed: Boolean = false
 )
+
+/** 导入分析给出的勾选项。只有勾上的才会变成 WorkflowParameter 存下来。 */
+data class BindingProposal(
+    val id: String = comfyId(),
+    val label: String = "",
+    val kind: ParameterKind = ParameterKind.CUSTOM,
+    val targets: List<InputTarget> = emptyList(),
+    val value: String = "",
+    val reason: String = ""
+) {
+    fun toParameter() = WorkflowParameter(id = id, label = label, kind = kind, targets = targets, value = value)
+}
 data class ComfyWorkflow(
     val schemaVersion: Int = 1,
     val id: String = comfyId(),
@@ -41,9 +53,13 @@ data class ComfyWorkflow(
     val graph: JsonObject = JsonObject(),
     val parameters: List<WorkflowParameter> = emptyList(),
     val outputNodes: List<String> = emptyList(),
+    /** 展开节点卡在生成页的显示顺序（节点 ID 列表）；缺省按绑定顺序。 */
+    val panelOrder: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
 data class ScalarInput(val target: InputTarget, val nodeTitle: String, val value: String, val type: String)
+/** One ComfyUI node and every literal input that can be shown together as its panel. */
+data class NodePanel(val nodeId: String, val title: String, val classType: String, val fields: List<ScalarInput>)
 data class PreparedWorkflow(val graph: JsonObject, val values: Map<String, String>)
 const val COMFY_MAX_UPLOAD_BYTES = 128L * 1024 * 1024
 data class UploadedImage(

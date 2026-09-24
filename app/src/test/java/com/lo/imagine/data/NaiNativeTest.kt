@@ -152,13 +152,13 @@ class NaiNativeTest {
         assertFalse("匿名 ID 不能残留", char.outfit.contains("OUTFIT_001"))
     }
     @Test fun fusedCaptionOverridesMechanicalCaption() {
-        // LLM 场景融合产物非空时，请求组装优先使用融合版（按场景取景推理），
+        // LLM 场景整理产物非空时，请求组装优先使用整理版（按场景取景推理），
         // 而不是机械拼接的 caption——这是「角色数据 → LLM 推理 → 场景适配」链路的关键。
         val card = NaiCharacterPrompt(name = "A", traits = "1girl, silver hair", face = "red eyes", outfit = "black coat")
         val c = base.copy(characterCards = listOf(card))
-        // 无融合：用机械拼接
+        // 无整理：用机械拼接
         assertEquals("girl, silver hair, red eyes, black coat", naiCharacterFieldCaption(card))
-        // 有融合：优先融合版
+        // 有整理：优先整理版
         val fused = card.copy(fusedCaption = "silver hair, red eyes, close-up")
         assertEquals("silver hair, red eyes, close-up", naiCharacterFieldCaption(fused))
         // 请求组装同样生效
@@ -202,6 +202,19 @@ class NaiNativeTest {
         // 背面 NSFW
         val backNsfw = fullCard.copy(viewAngle = "back", bodyMode = "nsfw")
         assertEquals("1girl, silver hair, ponytail from behind, bare back, ass", backNsfw.caption)
+    }
+    @Test fun sfwModeStripsNsfwTagsFromArrangedCaption() {
+        // 整理结果残留 NSFW 标签时，SFW 状态必须在请求与展示的同一入口把它剔除——开关必须真的关得掉
+        val sfw = NaiCharacterPrompt(name = "A", traits = "silver hair", face = "red eyes",
+            upperNsfw = "bare breasts, nipples", lowerNsfw = "pussy",
+            bodyMode = "sfw", fusedCaption = "silver hair, red eyes, bare breasts, smiling, nipples, pussy")
+        assertEquals("silver hair, red eyes, smiling", naiCharacterFieldCaption(sfw))
+        // NSFW 状态保留原样
+        val nsfw = sfw.copy(bodyMode = "nsfw")
+        assertEquals("silver hair, red eyes, bare breasts, smiling, nipples, pussy", naiCharacterFieldCaption(nsfw))
+        // custom（仅服装）同样按 SFW 处理
+        val custom = sfw.copy(bodyMode = "custom")
+        assertEquals("silver hair, red eyes, smiling", naiCharacterFieldCaption(custom))
     }
     @Test fun chatu8CharacterImportParsed() {
         val json = """
